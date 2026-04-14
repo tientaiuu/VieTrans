@@ -1,0 +1,29 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-background text-on-background min-h-screen font-body;
+  }
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-headline;
+  }
+}
+
+@layer utilities {
+  .glass-panel {
+    background: rgba(250, 248, 255, 0.8);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+  }
+  .shimmer {
+    background: linear-gradient(90deg, #f2f3ff 25%, #dae2fd 50%, #f2f3ff 75%);
+    background-size: 200% 100%;
+    animation: shimmer-move 2s infinite linear;
+  }
+  @keyframes shimmer-move {
+    0% { background-position: -200% 0; }
+    100% { background-position: 200% 0; }
+  }
+}

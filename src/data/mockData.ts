@@ -1,0 +1,11 @@
+export const MOCK_DATA = {
+  user: {
+    avatarUrl: "https://lh3.googleusercontent.com/aida-public/AB6AXuBWD5jBcqotuoGwoZRcQSzErfZ30uH7SOrRV8z52necI1flWkn9cFOF4EqHWyvjcxzk034hjC8aL0Ls4fGHMTBDsgH9Vjsh-AVhvxO102LJkbIAi4i2AQSAV3BjAoRRXcrOo0yjL51abyBtyX12XrSpK-GCLG06YEW2rkEjE3QL2ee-DfKcTXHtAourZICS_YUp6kiyzvtitl6kQn8H0WvOvHESyZfeAWTLhYWoL5NQoHDjTtABuOGRjZIpauIRFa_1Gy_mIB-2cw",
+    name: "Digital Curator"
+  },
+  images: {
+    translateBefore: "https://lh3.googleusercontent.com/aida-public/AB6AXuAMYuTSwEK_8ee_RqjR6mcR-z1CLrZKZzSQaSXPo0ilmFN54wL1tHbQKxEKo6A3T4dG_sUMPTOYASdAHslVtepF6-z_TIEWxkfss6mbWwVYYwMafGaBtLe2b_iGD3f29yc-ll31pr861I1Ax8QOhOuyUMwc7kESdGyTN99KynqqX_IGPwRr4a1ZBl7gJqgJd5Ql2iDaG2rkPrTrZ8WqiX3jP1Eb5jhbxtBawPL_YD3UHm0tvlUwP169qieb4i_Pl225tv0jPjKh0A",
+    translateAfter: "https://lh3.googleusercontent.com/aida-public/AB6AXuD2lx8h7tn5mMC8vSDL56kLwCFoZzKFhqZNCWBlBXuqNG41bIU7yPeEUgTgzdPXRUotS5-SpHVjPAQkrIbadwx3g62rtftUhnahoqfbnvigL9IL-T2Sy19KRR21WHV6uyvh93Zb4tjn23Fei9w5qEhbD-5sMz9I6LUtXez4o43sQ2swp0fZs4E-BYDIi9qKkjwLwRWynq-2NDGm1FgLlr_ERyxNe4n43oatwvHA6BlVaS-kjs3zDkARrAeRgey5qLr-NGGgc9aRjw",
+    heroImage: "https://lh3.googleusercontent.com/aida-public/AB6AXuD5KnapgbR2k9yqhlRniu46O_YuyqWKABYONCXuIY4fqfo4mCQKRBFEmuXm9YmiqkYt3w9muxxSurGctz6kpEamAH1yfmyqispDO941Z3YuL_65NkxUiIeAqdRYGTuTV9KzbdprdusXqslr8MQ2HTiXicJhSyWYOsZ_fzyJ45q7Vs8xdGhoCJpQVr9FAP5gTh5H5WdpDnkLF9EpXEtC2vDsSYkHFFKz4S3HvCHmDm1qe0hN1HHvLWUCXhhy8fo6gova4RDy3kezTQ"
+  }
+};

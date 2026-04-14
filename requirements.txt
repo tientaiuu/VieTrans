@@ -1,0 +1,18 @@
+# Yêu cầu hệ thống (System Requirements)
+- Node.js: phiên bản 18.x trở lên
+- npm: phiên bản 9.x trở lên (thường được cài đặt cùng Node.js)
+
+# Các thư viện chính (Main Libraries)
+Dự án này sử dụng npm để quản lý thư viện. Các thư viện này được tự động tải về khi bạn chạy `npm install` nhờ vào file `package.json` có sẵn:
+
+- react (^19.2.4)
+- react-dom (^19.2.4)
+- react-router-dom (^7.14.0)
+- lucide-react (^1.8.0)
+- classnames (^2.5.1)
+- tailwindcss (^3.4.19)
+- vite (^8.0.4)
+
+# Cách cài đặt
+Chỉ cần mở terminal ở thư mục dự án (iimt-react-app) và chạy:
+npm install
