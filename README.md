@@ -1,36 +1,95 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://github.com/vercel/next.js/tree/canary/packages/create-next-app).
+# VieTrans: In-Image Machine Translation (EN→VI)
 
-## Getting Started
+**VieTrans**: An In-Image Machine Translation system capable of translating text inside images while preserving the original real-world background.
 
-First, run the development server:
+---
+
+## Project Structure
+
+The project consists of three main components:
+
+- **`BE-Models/`**: Model source code (PyTorch), training scripts, and the Backend API (FastAPI).
+- **`FE/`**: User interface (Frontend) built with React + Vite + TailwindCSS.
+- **`IIMT30k_Vi/`**: Sample dataset used for testing and evaluation.
+
+---
+
+## Setup and Installation
+
+### 1. Prerequisites
+
+- **Python 3.10+** (Recommended to use a virtual environment like `venv` or `conda`).
+- **Node.js 18+** & **npm**.
+- **GPU** (Optional): Performance is significantly improved if an NVIDIA GPU (CUDA) or Apple Silicon (MPS) is available.
+
+### 2. Backend Setup (Server)
+
+Open your terminal and navigate to the backend directory:
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+cd BE-Models
+# Create a virtual environment (optional)
+python -m venv venv
+source venv/bin/activate  # Or venv\Scripts\activate on Windows
+
+# Install dependencies
+pip install -r requirements.txt
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+**Note on PyTorch:**
+The system automatically detects and uses Apple Metal (MPS) on Mac. For Windows/Linux with NVIDIA GPUs, ensure you install the CUDA-enabled version of `torch`.
 
-You can start editing the page by modifying `app/page.js`. The page auto-updates as you edit the file.
+### 3. Frontend Setup (UI)
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Open a new terminal and navigate to the frontend directory:
 
-## Learn More
+```bash
+cd FE
+npm install
+```
 
-To learn more about Next.js, take a look at the following resources:
+---
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Running the Application
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+You need to run both the Backend and Frontend **simultaneously**.
 
-## Deploy on Vercel
+### Step 1: Start the Backend API
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Navigate to the `server` directory inside `BE-Models` and run:
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```bash
+cd BE-Models/server
+uvicorn app:app --host 0.0.0.0 --port 8000 --reload
+```
+
+*The API will be available at: `http://localhost:8000`*
+
+### Step 2: Start the Frontend
+
+In the `FE` directory, run:
+
+```bash
+cd FE
+npm run dev
+```
+
+*The UI will be available at: `http://localhost:5173` (or the port shown in your terminal)*
+
+---
+
+## Key Features
+
+1. **Browse Samples**: Explore pre-processed examples from the `IIMT30k_Vi` test set.
+2. **Live Translation**: Upload any image containing English text to translate it into Vietnamese in real-time.
+3. **Pipeline Visualization**: View details for each processing stage:
+   - **Separate**: Extracts text from the background.
+   - **Translate**: Translates text features from English to Vietnamese.
+   - **Fuse**: Merges the translated text back onto the original background.
+
+---
+
+## References/ License
+
+- Paper: [Exploring In-Image Machine Translation with Real-World Background (ACL 2025)](https://arxiv.org/abs/2505.15282)
+- Dataset: [IIMT30k on HuggingFace](https://huggingface.co/datasets/yztian/IIMT30k)
