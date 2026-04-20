@@ -14,9 +14,14 @@ MODELS_DIR = os.path.join(DEBACK_DIR, "outputs", "models")
 
 sys.path.append(SRC_DIR)
 
-from Model import SeparateEncoder, Codebook, FuseDecoder
-from Translation import AuxTITTransformer
-from config_loader import load_config
+try:
+    from Model import SeparateEncoder, Codebook, FuseDecoder
+    from Translation import AuxTITTransformer
+    from config_loader import load_config
+except ImportError as e:
+    print(f"[Deback Pipeline] Critical failure importing model definitions: {e}")
+    # Re-raise to ensure we don't start in a broken state
+    raise
 
 class DebackPipeline:
     def __init__(self):
@@ -67,6 +72,9 @@ class DebackPipeline:
         
         # Override SP path to local
         sp_path = os.path.join(DEBACK_DIR, "scripts", "iimt30k_vi.model")
+        if not os.path.exists(sp_path):
+            sp_path = os.path.join(DEBACK_DIR, "scripts", "multi30k.model")
+        
         self.text_sp = sp.SentencePieceProcessor(model_file=sp_path)
         self.text_bos, self.text_eos, self.text_pad_id = self.text_sp.piece_to_id(['<s>', '</s>', '<pad>'])
         num_vocab = self.text_sp.piece_size()
