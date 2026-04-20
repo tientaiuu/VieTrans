@@ -1,0 +1,29 @@
+{
+    "data": {
+        "train_src_img_path": "/content/IIMT30k_Vi/Arial/train/en/image",
+        "train_tgt_img_path": "/content/IIMT30k_Vi/Arial/train/vi/image",
+        "train_src_text_img_path": "/content/IIMT30k_Vi/Arial/train/en/text",
+        "train_tgt_text_img_path": "/content/IIMT30k_Vi/Arial/train/vi/text",
+        "train_background_img_path": "/content/IIMT30k_Vi/Arial/train/background",
+        "valid_src_img_path": "/content/IIMT30k_Vi/Arial/val/en/image",
+        "valid_tgt_img_path": "/content/IIMT30k_Vi/Arial/val/vi/image",
+        "valid_src_text_img_path": "/content/IIMT30k_Vi/Arial/val/en/text",
+        "valid_tgt_text_img_path": "/content/IIMT30k_Vi/Arial/val/vi/text",
+        "valid_background_img_path": "/content/IIMT30k_Vi/Arial/val/background"
+    },
+    "train": {
+        "load_checkpoint": "",
+        "save_checkpoint_dir": "/content/drive/MyDrive/DebackX/outputs/models/separate",
+        "batch_size": 32,
+        "epoch": -1,
+        "max_update_step": 50000,
+        "warmup_steps": 2000,
+        "warmup_init_lr": 1e-07,
+        "max_lr": 0.0001,
+        "tensorboard_dir": "outputs/tb",
+        "note": "~2k \u1ea3nh: batch 32, ~8k steps; dataset = src+tgt n\u00ean ~2\u00d7s\u1ed1 \u1ea3nh m\u1ed9t ng\u00f4n ng\u1eef m\u1ed7i batch step"
+    },
+    "model": {
+        "patch_size": 16
+    }
+}

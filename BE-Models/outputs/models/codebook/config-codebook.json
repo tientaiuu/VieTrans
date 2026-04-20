@@ -1,0 +1,26 @@
+{
+    "data": {
+        "train_src_text_img_path": "/content/IIMT30k_Vi/Arial/train/en/text",
+        "train_tgt_text_img_path": "/content/IIMT30k_Vi/Arial/train/vi/text",
+        "valid_src_text_img_path": "/content/IIMT30k_Vi/Arial/val/en/text",
+        "valid_tgt_text_img_path": "/content/IIMT30k_Vi/Arial/val/vi/text"
+    },
+    "train": {
+        "load_checkpoint": "",
+        "save_checkpoint_dir": "/content/drive/MyDrive/DATN/models/codebook",
+        "batch_size": 32,
+        "epoch": -1,
+        "max_update_step": 50000,
+        "warmup_steps": 2000,
+        "warmup_init_lr": 1e-07,
+        "max_lr": 0.0001,
+        "tensorboard_dir": "outputs/tb",
+        "note": "~2k \u1ea3nh text-image: batch 32, 8k steps"
+    },
+    "model": {
+        "patch_size": 16,
+        "dim": 512,
+        "codebook_dim": 32,
+        "codebook_size": 8192
+    }
+}

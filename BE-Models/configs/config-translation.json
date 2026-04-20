@@ -1,0 +1,36 @@
+{
+    "data": {
+        "train_src_code_path": "outputs/results/codebook/train/en/code.txt",
+        "train_tgt_code_path": "outputs/results/codebook/train/vi/code.txt",
+        "train_text_path": "/content/data/IIMT30k_Vi/Arial/train/vi/subtitle.tok.id.txt",
+        "valid_src_code_path": "outputs/results/codebook/val/en/code.txt",
+        "valid_tgt_code_path": "outputs/results/codebook/val/vi/code.txt",
+        "valid_text_path": "/content/data/IIMT30k_Vi/Arial/val/vi/subtitle.tok.id.txt",
+        "text_sp": "scripts/multi30k.model"
+    },
+    "train": {
+        "load_checkpoint": "",
+        "load_pretrain": "",
+        "save_checkpoint_dir": "/content/drive/MyDrive/DebackX_models/translation",
+        "batch_size": 64,
+        "epoch": -1,
+        "max_update_step": 40000,
+        "warmup_steps": 2000,
+        "warmup_init_lr": 1e-07,
+        "max_lr": 0.0001,
+        "tensorboard_dir": "outputs/tb",
+        "note": "~2k c\u1eb7p: batch 64, 20k steps; dropout t\u0103ng nh\u1eb9 ch\u1ed1ng overfit"
+    },
+    "model": {
+        "codebook_size": 8192,
+        "code_d_model": 1024,
+        "code_d_ff": 4096,
+        "code_n_head": 16,
+        "code_l": 6,
+        "text_d_model": 256,
+        "text_d_ff": 1024,
+        "text_n_head": 4,
+        "text_l": 3,
+        "dropout": 0.4
+    }
+}
