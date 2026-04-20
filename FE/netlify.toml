@@ -1,0 +1,18 @@
+# Netlify Configuration File
+# This file overrides the settings in the Netlify UI to ensure the build works correctly.
+
+[build]
+  # The directory where the frontend code lives
+  base = "FE"
+  
+  # The command to run to build the project
+  command = "npm run build"
+  
+  # The directory that contains the built assets (relative to 'base')
+  publish = "dist"
+
+# Handling React Router client-side routing
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
