@@ -3369,6 +3369,10 @@ footer {
     padding: 86px 16px 40px;
   }
 
+  .account-sidebar {
+    display: none;
+  }
+
   .account-hero,
   .account-panel {
     border-radius: 22px;
@@ -3629,8 +3633,8 @@ footer {
     position: fixed;
     top: 74px;
     right: 16px;
-    left: 16px;
-    width: auto;
+    left: auto;
+    width: min(248px, calc(100vw - 32px));
     max-height: calc(100vh - 90px);
     overflow-y: auto;
   }
