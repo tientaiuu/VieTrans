@@ -66,7 +66,7 @@ export const AccountPage: React.FC = () => {
           <aside className="account-sidebar">
             <div className="account-sidebar-panel">
               <div className="account-sidebar-head">
-                <span className="account-sidebar-title">Account menu</span>
+                <span className="account-sidebar-title">Account panel</span>
               </div>
 
               <div className="account-sidebar-list">
@@ -101,7 +101,7 @@ export const AccountPage: React.FC = () => {
                 <button type="button" className="account-sidebar-item account-sidebar-item-logout" onClick={handleLogout}>
                   <span className="account-sidebar-item-main">
                     <LogOut size={15} />
-                    <span>Sign out</span>
+                    <span>Logout</span>
                   </span>
                 </button>
               </div>
