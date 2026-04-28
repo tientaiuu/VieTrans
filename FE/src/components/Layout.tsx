@@ -15,25 +15,30 @@ export const Layout: React.FC = () => {
   }, [theme]);
 
   const isStudio = location.pathname === '/studio';
+  const isAuthRoute = location.pathname === '/login' || location.pathname === '/signup';
 
   return (
     <div className="min-h-screen flex flex-col font-sans transition-colors duration-300">
       <CustomCursor />
       <Navbar />
       <main className="flex-grow">
-        <AnimatePresence mode="wait">
-          <motion.div
-            key={location.pathname}
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
-            transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
-          >
-            <Outlet />
-          </motion.div>
-        </AnimatePresence>
+        {isAuthRoute ? (
+          <Outlet />
+        ) : (
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={location.pathname}
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
+            >
+              <Outlet />
+            </motion.div>
+          </AnimatePresence>
+        )}
       </main>
-      {!isStudio && <Footer />}
+      {!isStudio && !isAuthRoute && <Footer />}
     </div>
   );
 };

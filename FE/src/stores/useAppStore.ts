@@ -6,9 +6,21 @@ type Theme = 'light' | 'dark';
 interface AppState {
   theme: Theme;
   activePage: string;
+  authOpen: boolean;
+  isLoggedIn: boolean;
+  userFullName: string;
+  userEmail: string;
+  userUsername: string;
+  userAvatar: string | null;
   toggleTheme: () => void;
   setTheme: (theme: Theme) => void;
   setActivePage: (page: string) => void;
+  openAuth: () => void;
+  closeAuth: () => void;
+  login: (fullName: string, email: string) => void;
+  updateProfile: (profile: { fullName: string; username: string }) => void;
+  setUserAvatar: (avatar: string | null) => void;
+  logout: () => void;
 }
 
 export const useAppStore = create<AppState>()(
@@ -16,9 +28,31 @@ export const useAppStore = create<AppState>()(
     (set) => ({
       theme: 'light',
       activePage: 'home',
+      authOpen: false,
+      isLoggedIn: false,
+      userFullName: '',
+      userEmail: '',
+      userUsername: '',
+      userAvatar: null,
       toggleTheme: () => set((state) => ({ theme: state.theme === 'light' ? 'dark' : 'light' })),
       setTheme: (theme) => set({ theme }),
       setActivePage: (page) => set({ activePage: page }),
+      openAuth: () => set({ authOpen: true }),
+      closeAuth: () => set({ authOpen: false }),
+      login: (fullName: string, email: string) =>
+        set({
+          isLoggedIn: true,
+          userFullName: fullName,
+          userEmail: email,
+          userUsername: email.split('@')[0] || 'user',
+        }),
+      updateProfile: ({ fullName, username }) =>
+        set({
+          userFullName: fullName,
+          userUsername: username,
+        }),
+      setUserAvatar: (avatar) => set({ userAvatar: avatar }),
+      logout: () => set({ isLoggedIn: false, userFullName: '', userEmail: '', userUsername: '', userAvatar: null }),
     }),
     {
       name: 'vietrans-app-storage',
