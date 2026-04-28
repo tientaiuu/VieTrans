@@ -134,7 +134,7 @@ nav {
   top: 0;
   left: 0;
   right: 0;
-  z-index: 300;
+  z-index: 500;
   height: 66px;
   display: flex;
   align-items: center;
@@ -854,15 +854,35 @@ nav {
     font-size: 26px;
   }
 
-  .auth-actions-row,
+  .auth-actions-row {
+    flex-wrap: nowrap;
+    align-items: center;
+    justify-content: space-between;
+  }
+
   .auth-bottom {
-    flex-direction: column;
-    align-items: flex-start;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    font-size: 14px;
   }
 
   .auth-forgot {
-    width: 100%;
-    text-align: left;
+    width: auto;
+    text-align: right;
+    flex-shrink: 0;
+  }
+
+  .auth-forgot .link-like,
+  .auth-bottom span,
+  .auth-bottom .link-like {
+    white-space: nowrap;
+  }
+
+  .auth-bottom .link-like {
+    font-size: 14px;
   }
 }
 
@@ -3601,8 +3621,18 @@ footer {
     text-align: center;
   }
 
+  .account-menu-wrap {
+    position: static;
+  }
+
   .account-dropdown {
-    width: min(280px, calc(100vw - 32px));
+    position: fixed;
+    top: 74px;
+    right: 16px;
+    left: 16px;
+    width: auto;
+    max-height: calc(100vh - 90px);
+    overflow-y: auto;
   }
 
   .hero-inner {
