@@ -3380,8 +3380,32 @@ footer {
   }
 
   .account-profile-block {
-    flex-direction: column;
-    align-items: flex-start;
+    flex-direction: row;
+    align-items: center;
+    gap: 16px;
+  }
+
+  .account-avatar {
+    width: 92px;
+    height: 92px;
+    border-radius: 26px;
+    font-size: 34px;
+  }
+
+  .account-avatar-upload {
+    right: -6px;
+    bottom: 6px;
+    width: 32px;
+    height: 32px;
+    border-radius: 10px;
+  }
+
+  .account-pill-row {
+    margin-bottom: 10px;
+  }
+
+  .account-status-pill {
+    display: none;
   }
 
   .account-info-grid {
@@ -3406,7 +3430,8 @@ footer {
   }
 
   .account-title {
-    font-size: 34px;
+    font-size: 30px;
+    line-height: 1;
   }
 
   .account-subtitle {
@@ -3649,10 +3674,6 @@ footer {
 
   .hero-inner {
     padding-top: 28px;
-  }
-
-  .nl {
-    display: none;
   }
 
   .h-meta,
