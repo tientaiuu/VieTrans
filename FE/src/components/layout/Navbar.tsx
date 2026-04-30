@@ -112,7 +112,7 @@ export const Navbar: React.FC = () => {
                       <span>Personal Information</span>
                     </span>
                   </button>
-                  <button className="account-dropdown-item" type="button">
+                  <button className="account-dropdown-item" type="button" onClick={() => handleAccountAction('/account/activity-history')}>
                     <span className="account-dropdown-item-main">
                       <History size={15} className="account-dropdown-icon" />
                       <span>Activity History</span>

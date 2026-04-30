@@ -5,7 +5,7 @@ import { ComparisonSlider } from './components/ComparisonSlider';
 import { imageUrl } from '../../api';
 
 export const StudioPage: React.FC = () => {
-  const { status, progress, result, processTranslation, reset, file } = useStudioStore();
+  const { status, progress, result, processTranslation, file } = useStudioStore();
 
   return (
     <div className="studio-wrap fup">
@@ -22,7 +22,6 @@ export const StudioPage: React.FC = () => {
         <aside className="sp-left">
           <div className="spl-header">
             <h3 className="spl-title">Source Configuration</h3>
-            <button onClick={reset} className="spl-rm">Clear</button>
           </div>
 
           <UploadZone />

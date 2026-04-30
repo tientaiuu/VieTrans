@@ -6,6 +6,7 @@ import { DashboardPage } from './features/dashboard/DashboardPage';
 import { DocsPage } from './features/docs/DocsPage';
 import { AuthPage } from './features/auth/AuthPage';
 import { AccountPage } from './features/account/AccountPage';
+import { ActivityHistoryPage } from './features/account/ActivityHistoryPage';
 
 function App() {
   return (
@@ -19,6 +20,7 @@ function App() {
           <Route path="login" element={<AuthPage />} />
           <Route path="signup" element={<AuthPage />} />
           <Route path="account" element={<AccountPage />} />
+          <Route path="account/activity-history" element={<ActivityHistoryPage />} />
         </Route>
       </Routes>
     </BrowserRouter>

@@ -1,8 +1,9 @@
 import React from 'react';
 import { useAppStore } from '../../stores/useAppStore';
 import { useNavigate } from 'react-router-dom';
-import { BadgeCheck, History, Info, LogOut, Plus, Settings, UserRound } from 'lucide-react';
+import { BadgeCheck, Plus } from 'lucide-react';
 import { getFirstName } from '../../utils/user';
+import { AccountSidebarNav } from './AccountSidebarNav';
 
 export const AccountPage: React.FC = () => {
   const { logout, userFullName, userEmail, userUsername, userAvatar, setUserAvatar, updateProfile, isLoggedIn } = useAppStore();
@@ -63,50 +64,7 @@ export const AccountPage: React.FC = () => {
     <div className="account-page fup">
       <div className="account-shell">
         <div className="account-layout">
-          <aside className="account-sidebar">
-            <div className="account-sidebar-panel">
-              <div className="account-sidebar-head">
-                <span className="account-sidebar-title">Account panel</span>
-              </div>
-
-              <div className="account-sidebar-list">
-                <button type="button" className="account-sidebar-item is-active">
-                  <span className="account-sidebar-item-main">
-                    <UserRound size={15} />
-                    <span>Personal information</span>
-                  </span>
-                </button>
-
-                <button type="button" className="account-sidebar-item">
-                  <span className="account-sidebar-item-main">
-                    <History size={15} />
-                    <span>Activity history</span>
-                  </span>
-                </button>
-
-                <button type="button" className="account-sidebar-item">
-                  <span className="account-sidebar-item-main">
-                    <Settings size={15} />
-                    <span>Settings</span>
-                  </span>
-                </button>
-
-                <button type="button" className="account-sidebar-item">
-                  <span className="account-sidebar-item-main">
-                    <Info size={15} />
-                    <span>Information</span>
-                  </span>
-                </button>
-
-                <button type="button" className="account-sidebar-item account-sidebar-item-logout" onClick={handleLogout}>
-                  <span className="account-sidebar-item-main">
-                    <LogOut size={15} />
-                    <span>Logout</span>
-                  </span>
-                </button>
-              </div>
-            </div>
-          </aside>
+          <AccountSidebarNav activeSection="profile" onLogout={handleLogout} />
 
           <div className="account-main">
             <section className="account-hero">
