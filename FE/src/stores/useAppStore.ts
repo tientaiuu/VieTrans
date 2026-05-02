@@ -12,6 +12,9 @@ interface AppState {
   userEmail: string;
   userUsername: string;
   userAvatar: string | null;
+  emailNotifications: boolean;
+  autoSaveHistory: boolean;
+  defaultOutputFormat: 'png' | 'jpg' | 'webp';
   toggleTheme: () => void;
   setTheme: (theme: Theme) => void;
   setActivePage: (page: string) => void;
@@ -20,6 +23,12 @@ interface AppState {
   login: (fullName: string, email: string) => void;
   updateProfile: (profile: { fullName: string; username: string }) => void;
   setUserAvatar: (avatar: string | null) => void;
+  updateSettings: (settings: {
+    theme: Theme;
+    emailNotifications: boolean;
+    autoSaveHistory: boolean;
+    defaultOutputFormat: 'png' | 'jpg' | 'webp';
+  }) => void;
   logout: () => void;
 }
 
@@ -34,6 +43,9 @@ export const useAppStore = create<AppState>()(
       userEmail: '',
       userUsername: '',
       userAvatar: null,
+      emailNotifications: true,
+      autoSaveHistory: true,
+      defaultOutputFormat: 'png',
       toggleTheme: () => set((state) => ({ theme: state.theme === 'light' ? 'dark' : 'light' })),
       setTheme: (theme) => set({ theme }),
       setActivePage: (page) => set({ activePage: page }),
@@ -52,6 +64,13 @@ export const useAppStore = create<AppState>()(
           userUsername: username,
         }),
       setUserAvatar: (avatar) => set({ userAvatar: avatar }),
+      updateSettings: ({ theme, emailNotifications, autoSaveHistory, defaultOutputFormat }) =>
+        set({
+          theme,
+          emailNotifications,
+          autoSaveHistory,
+          defaultOutputFormat,
+        }),
       logout: () => set({ isLoggedIn: false, userFullName: '', userEmail: '', userUsername: '', userAvatar: null }),
     }),
     {

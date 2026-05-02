@@ -19,6 +19,7 @@ export const AuthPage: React.FC = () => {
   const [rememberMe, setRememberMe] = useState(true);
   const [isOpen, setIsOpen] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   useEffect(() => {
     const id = requestAnimationFrame(() => {
@@ -134,14 +135,25 @@ export const AuthPage: React.FC = () => {
           {tab === 'signup' && (
             <>
               <label className="auth-label">Confirm Password</label>
-              <input
-                className="auth-input"
-                type="password"
-                placeholder="Confirm your password"
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-                required
-              />
+              <div className="auth-input-wrap">
+                <input
+                  className="auth-input"
+                  type={showConfirmPassword ? 'text' : 'password'}
+                  placeholder="Confirm your password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  required
+                />
+                <button
+                  type="button"
+                  className="auth-visibility"
+                  aria-label={showConfirmPassword ? 'Hide confirm password' : 'Show confirm password'}
+                  aria-pressed={showConfirmPassword}
+                  onClick={() => setShowConfirmPassword((value) => !value)}
+                >
+                  {showConfirmPassword ? <EyeOff size={20} /> : <Eye size={20} />}
+                </button>
+              </div>
             </>
           )}
 

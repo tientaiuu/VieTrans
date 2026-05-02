@@ -1,11 +1,19 @@
 import React from 'react';
+import { SquarePen } from 'lucide-react';
 import { useStudioStore } from '../../stores/useStudioStore';
 import { UploadZone } from './components/UploadZone';
 import { ComparisonSlider } from './components/ComparisonSlider';
 import { imageUrl } from '../../api';
 
 export const StudioPage: React.FC = () => {
-  const { status, progress, result, processTranslation, file } = useStudioStore();
+  const { status, progress, result, processTranslation, file, previewUrl } = useStudioStore();
+  const [isCropMode, setIsCropMode] = React.useState(false);
+
+  React.useEffect(() => {
+    if (!previewUrl) {
+      setIsCropMode(false);
+    }
+  }, [previewUrl]);
 
   return (
     <div className="studio-wrap fup">
@@ -22,9 +30,13 @@ export const StudioPage: React.FC = () => {
         <aside className="sp-left">
           <div className="spl-header">
             <h3 className="spl-title">Source Configuration</h3>
+            <button type="button" className="spl-rm" onClick={() => previewUrl && setIsCropMode(true)} disabled={!previewUrl}>
+              <SquarePen size={13} />
+              <span>Edit</span>
+            </button>
           </div>
 
-          <UploadZone />
+          <UploadZone isCropMode={isCropMode} onCropModeChange={setIsCropMode} />
 
           <div className="spl-bottom">
             <div className="opts-row">
@@ -43,7 +55,7 @@ export const StudioPage: React.FC = () => {
             <button 
               className="proc-btn" 
               onClick={processTranslation}
-              disabled={!file || status === 'uploading' || status === 'processing'}
+              disabled={!file || isCropMode || status === 'uploading' || status === 'processing'}
             >
               {status === 'uploading' ? 'Processing...' : 'Process Image →'}
             </button>

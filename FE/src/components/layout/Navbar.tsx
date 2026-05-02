@@ -118,7 +118,7 @@ export const Navbar: React.FC = () => {
                       <span>Activity History</span>
                     </span>
                   </button>
-                  <button className="account-dropdown-item" type="button">
+                  <button className="account-dropdown-item" type="button" onClick={() => handleAccountAction('/account/settings')}>
                     <span className="account-dropdown-item-main">
                       <Settings size={15} className="account-dropdown-icon" />
                       <span>Settings</span>
