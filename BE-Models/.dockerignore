@@ -1,0 +1,9 @@
+__pycache__
+*.pyc
+.git
+*.log
+outputs
+src
+scripts
+configs
+*.md

@@ -7,10 +7,10 @@ from torchvision import transforms, utils as vutils
 
 # Setup paths to import from src/
 SERVER_DIR = os.path.dirname(os.path.abspath(__file__))
-DEBACK_DIR = os.path.abspath(os.path.join(SERVER_DIR, ".."))
+DEBACK_DIR = os.environ.get("DEBACK_ROOT", os.path.abspath(os.path.join(SERVER_DIR, "..")))
 SRC_DIR = os.path.join(DEBACK_DIR, "src")
 CONFIGS_DIR = os.path.join(DEBACK_DIR, "configs")
-MODELS_DIR = os.path.join(DEBACK_DIR, "outputs", "models")
+MODELS_DIR = os.environ.get("MODELS_DIR", os.path.join(DEBACK_DIR, "outputs", "models"))
 
 sys.path.append(SRC_DIR)
 

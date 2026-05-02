@@ -35,12 +35,14 @@ except ImportError as e:
 inference_lock = asyncio.Lock()
 
 # ─── Path resolution ──────────────────────────────────────────────────────────
-SERVER_DIR = Path(__file__).resolve().parent
-DEBACK_ROOT = SERVER_DIR.parent  # /Users/…/DA/Deback
-PROJECT_ROOT = DEBACK_ROOT.parent  # /Users/…/DA
+import os
 
-RESULTS_DIR = DEBACK_ROOT / "outputs" / "results"
-DATASET_DIR = PROJECT_ROOT / "IIMT30k_Vi" / "Arial" / "test"
+SERVER_DIR = Path(__file__).resolve().parent
+DEBACK_ROOT = Path(os.environ.get("DEBACK_ROOT", SERVER_DIR.parent))
+PROJECT_ROOT = Path(os.environ.get("PROJECT_ROOT", DEBACK_ROOT.parent))
+
+RESULTS_DIR = Path(os.environ.get("RESULTS_DIR", DEBACK_ROOT / "outputs" / "results"))
+DATASET_DIR = Path(os.environ.get("DATASET_DIR", PROJECT_ROOT / "IIMT30k_Vi" / "Arial" / "test"))
 
 # Pipeline stage directories
 PATHS = {
