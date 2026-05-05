@@ -8,6 +8,7 @@ import { AuthPage } from './features/auth/AuthPage';
 import { AccountPage } from './features/account/AccountPage';
 import { ActivityHistoryPage } from './features/account/ActivityHistoryPage';
 import { SettingsPage } from './features/account/SettingsPage';
+import { InformationPage } from './features/account/InformationPage';
 
 function App() {
   return (
@@ -23,6 +24,7 @@ function App() {
           <Route path="account" element={<AccountPage />} />
           <Route path="account/activity-history" element={<ActivityHistoryPage />} />
           <Route path="account/settings" element={<SettingsPage />} />
+          <Route path="account/information" element={<InformationPage />} />
         </Route>
       </Routes>
     </BrowserRouter>
