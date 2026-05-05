@@ -2338,6 +2338,7 @@ footer {
   position: absolute;
   inset: 0;
   cursor: crosshair;
+  touch-action: none;
 }
 
 .img-preview-crop-selection {

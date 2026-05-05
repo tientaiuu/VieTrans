@@ -97,18 +97,20 @@ export const UploadZone: React.FC<UploadZoneProps> = ({ isCropMode, onCropModeCh
     };
   };
 
-  const handleCropStart = (event: React.MouseEvent<HTMLDivElement>) => {
+  const handleCropStart = (event: React.PointerEvent<HTMLDivElement>) => {
     if (!isCropMode) return;
 
     event.preventDefault();
     event.stopPropagation();
     stopDragging();
 
+    event.currentTarget.setPointerCapture(event.pointerId);
+
     const start = getStagePoint(event.clientX, event.clientY);
     setHasDraggedCrop(false);
     setCropRect({ x: start.x, y: start.y, width: 0, height: 0 });
 
-    const handleMouseMove = (moveEvent: MouseEvent) => {
+    const handlePointerMove = (moveEvent: PointerEvent) => {
       const point = getStagePoint(moveEvent.clientX, moveEvent.clientY);
       const width = Math.abs(point.x - start.x);
       const height = Math.abs(point.y - start.y);
@@ -125,16 +127,18 @@ export const UploadZone: React.FC<UploadZoneProps> = ({ isCropMode, onCropModeCh
       });
     };
 
-    const handleMouseUp = () => {
+    const handlePointerUp = () => {
       stopDragging();
     };
 
-    document.addEventListener('mousemove', handleMouseMove);
-    document.addEventListener('mouseup', handleMouseUp);
+    document.addEventListener('pointermove', handlePointerMove);
+    document.addEventListener('pointerup', handlePointerUp);
+    document.addEventListener('pointercancel', handlePointerUp);
 
     dragCleanupRef.current = () => {
-      document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
+      document.removeEventListener('pointermove', handlePointerMove);
+      document.removeEventListener('pointerup', handlePointerUp);
+      document.removeEventListener('pointercancel', handlePointerUp);
     };
   };
 
@@ -214,7 +218,7 @@ export const UploadZone: React.FC<UploadZoneProps> = ({ isCropMode, onCropModeCh
               className="img-preview-media"
               onLoad={() => setImageLoaded(true)}
             />
-            {isCropMode && <div className="img-preview-hit" onMouseDown={handleCropStart} />}
+            {isCropMode && <div className="img-preview-hit" onPointerDown={handleCropStart} />}
             {isCropMode && cropRect && (
               <div
                 className="img-preview-crop-selection"
@@ -240,7 +244,7 @@ export const UploadZone: React.FC<UploadZoneProps> = ({ isCropMode, onCropModeCh
           <div className="img-preview-crop-toolbar">
             <div className="img-preview-crop-copy">
               <div className="img-preview-crop-title">Drag to crop</div>
-              <div className="img-preview-crop-note">Click and drag on the image to select the crop area.</div>
+              <div className="img-preview-crop-note">Drag on the image to select the crop area.</div>
             </div>
             <div className="img-preview-crop-actions">
               <button type="button" className="img-preview-crop-btn is-ghost" onClick={handleCancelCrop}>
