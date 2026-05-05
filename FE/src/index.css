@@ -4333,6 +4333,23 @@ footer {
     padding: 22px;
   }
 
+  .account-hero {
+    background: var(--paper);
+    box-shadow: none;
+  }
+
+  .account-hero::after {
+    display: none;
+  }
+
+  .account-panel,
+  .account-info-card,
+  .account-setting-item,
+  .information-card {
+    box-shadow: none;
+    background: var(--paper);
+  }
+
   .account-profile-block {
     flex-direction: row;
     align-items: center;
@@ -4344,6 +4361,7 @@ footer {
     height: 92px;
     border-radius: 26px;
     font-size: 34px;
+    box-shadow: none;
   }
 
   .account-avatar-upload {
