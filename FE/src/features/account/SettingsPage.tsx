@@ -48,7 +48,7 @@ export const SettingsPage: React.FC = () => {
   };
 
   return (
-    <div className="account-page fup">
+    <div className="account-page">
       <div className="account-shell">
         <div className="account-layout">
           <AccountSidebarNav activeSection="settings" onLogout={handleLogout} />

@@ -4413,19 +4413,40 @@ footer {
     align-items: flex-start;
   }
 
+  .activity-history-page .account-main {
+    padding-left: 0;
+  }
+
   .activity-archive {
     gap: 18px;
+    width: 100%;
+    max-width: 720px;
+    margin: 0 auto;
+    justify-items: center;
   }
 
   .activity-archive-title {
     font-size: 30px;
     line-height: 1;
+    text-align: center;
   }
 
   .activity-filter-group,
   .activity-archive-tools,
   .activity-secondary-actions {
     width: 100%;
+  }
+
+  .activity-archive-head,
+  .activity-archive-copy,
+  .activity-archive-tools,
+  .activity-archive-list {
+    width: 100%;
+    justify-items: center;
+  }
+
+  .activity-archive-head {
+    text-align: center;
   }
 
   .activity-filter-group {
@@ -4441,21 +4462,35 @@ footer {
   }
 
   .activity-card {
+    width: 100%;
     padding: 18px;
     gap: 18px;
     border-radius: 22px;
+    justify-items: center;
   }
 
   .activity-card-top {
-    justify-content: flex-start;
+    width: 100%;
+    justify-content: center;
   }
 
   .activity-card-media {
+    width: 100%;
     grid-template-columns: 1fr;
   }
 
   .activity-thumb {
     min-height: 184px;
+  }
+
+  .activity-card-meta,
+  .activity-card-actions {
+    width: 100%;
+    justify-items: center;
+  }
+
+  .activity-card-meta {
+    justify-content: center;
   }
 
   .activity-secondary-actions {
