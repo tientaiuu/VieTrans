@@ -56,8 +56,7 @@ export const DocsPage: React.FC = () => {
         <h3 className="docs-h3">Response Schema</h3>
         <div className="code">
           {'{'}<br />
-          &nbsp;&nbsp;<span className="jk">"matched_id"</span>: <span className="cn">1204</span>,<br />
-          &nbsp;&nbsp;<span className="jk">"match_quality"</span>: <span className="cs">"good"</span>,<br />
+          &nbsp;&nbsp;<span className="jk">"matched_id"</span>: <span className="cs">"uuid-string"</span>,<br />
           &nbsp;&nbsp;<span className="jk">"stages"</span>: {'{'}<br />
           &nbsp;&nbsp;&nbsp;&nbsp;<span className="jk">"input"</span>: <span className="cs">"/api/images/input/1204"</span>,<br />
           &nbsp;&nbsp;&nbsp;&nbsp;<span className="jk">"fuse"</span>: <span className="cs">"/api/images/fuse/1204"</span><br />

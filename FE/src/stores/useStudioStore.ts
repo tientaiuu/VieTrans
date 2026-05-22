@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { uploadImage, type UploadResult } from '../api';
+import { useAppStore } from './useAppStore';
 
 export type TranslationStatus = 'idle' | 'uploading' | 'processing' | 'done' | 'error';
 
@@ -59,7 +60,8 @@ export const useStudioStore = create<StudioState>((set, get) => ({
         }));
       }, 300);
 
-      const result = await uploadImage(file);
+      const token = useAppStore.getState().token;
+      const result = await uploadImage(file, token || undefined);
       
       clearInterval(interval);
       set({ status: 'done', progress: 100, result });

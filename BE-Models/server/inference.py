@@ -49,6 +49,31 @@ class DebackPipeline:
         """Preload all models into RAM/VRAM to eliminate I/O delay during inference."""
         print("[Deback Pipeline] Loading models...")
 
+        # --- Auto-Download missing checkpoints from Hugging Face ---
+        repo_id = "masterdzzzz/debackX"
+        models_to_download = [
+            ("checkpoint_best0.023.pt", os.path.join(MODELS_DIR, "separate")),
+            ("checkpoint_best0.039.pt", os.path.join(MODELS_DIR, "codebook")),
+            ("checkpoint_best0.846.pt", os.path.join(MODELS_DIR, "translation")),
+            ("checkpoint_best0.006.pt", os.path.join(MODELS_DIR, "fuse")),
+        ]
+        
+        try:
+            from huggingface_hub import hf_hub_download
+            import shutil
+            for filename, local_dir in models_to_download:
+                local_path = os.path.join(local_dir, filename)
+                if not os.path.exists(local_path):
+                    print(f"[Deback Pipeline] Downloading {filename} from Hugging Face ({repo_id})...")
+                    os.makedirs(local_dir, exist_ok=True)
+                    cached_path = hf_hub_download(repo_id=repo_id, filename=filename)
+                    shutil.copy2(cached_path, local_path)
+                    print(f"[Deback Pipeline] Saved {filename} to {local_path}")
+        except ImportError:
+            print("[Deback Pipeline] WARNING: 'huggingface_hub' is not installed. Run 'pip install huggingface_hub' to enable auto-download.")
+        except Exception as e:
+            print(f"[Deback Pipeline] Error downloading models: {e}")
+
         # 1. Separate
         sep_ckpt_path = os.path.join(MODELS_DIR, "separate", "checkpoint_best0.023.pt")
         sep_config_path = os.path.join(CONFIGS_DIR, "config-separate.json")
@@ -62,7 +87,16 @@ class DebackPipeline:
         cb_config_path = os.path.join(CONFIGS_DIR, "config-codebook.json")
         _, _, cb_mcfg = load_config(cb_config_path)
         self.codebook_model = Codebook(cb_mcfg["patch_size"], cb_mcfg["dim"], cb_mcfg["codebook_dim"], cb_mcfg["codebook_size"])
-        self.codebook_model.load_state_dict(torch.load(cb_ckpt_path, map_location="cpu")["model_state"])
+        
+        # Sửa lỗi size mismatch cho vq._codebook.initted
+        cb_state_dict = torch.load(cb_ckpt_path, map_location="cpu")["model_state"]
+        for key in list(cb_state_dict.keys()):
+            if "vq._codebook.initted" in key:
+                if cb_state_dict[key].shape != self.codebook_model.state_dict()[key].shape:
+                    print(f"[Deback Pipeline] Fixing shape mismatch for {key}")
+                    cb_state_dict[key] = cb_state_dict[key].reshape(self.codebook_model.state_dict()[key].shape)
+        
+        self.codebook_model.load_state_dict(cb_state_dict)
         self.codebook_model.to(self.device).eval()
 
         # 3. Translation

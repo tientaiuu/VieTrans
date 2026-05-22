@@ -174,3 +174,10 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+
+# Models and Outputs
+outputs/
+*.pt
+
+# Debug/test scripts
+server/test_db.py

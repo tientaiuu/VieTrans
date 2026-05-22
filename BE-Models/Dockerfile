@@ -1,33 +1,23 @@
-# Use an official Python runtime as a parent image
+# Sử dụng Python 3.10
 FROM python:3.10-slim
 
-# Set the working directory in the container
+# Thiết lập thư mục làm việc
 WORKDIR /app
 
-# Install system dependencies for OpenCV and other libraries
-RUN apt-get update && apt-get install -y \
-    libgl1-mesa-glx \
-    libglib2.0-0 \
-    && rm -rf /var/lib/apt/lists/*
-
-# Copy the requirements file into the container
-COPY server/requirements.txt .
-
-# Install any needed packages specified in requirements.txt
+# Copy requirement và cài đặt
+COPY requirements.txt .
+# Tải PyTorch phiên bản CPU để nhẹ và phù hợp với HuggingFace Space miễn phí
+RUN pip install --no-cache-dir torch torchvision --index-url https://download.pytorch.org/whl/cpu
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy the rest of the application code
+# Copy toàn bộ code BE-Models vào
 COPY . .
 
-# Create dummy results folder if not exists
-RUN mkdir -p outputs/results/live
-
-# Set Environment Variables
-ENV PYTHONPATH=/app
-ENV PYTHONUNBUFFERED=1
-
-# Hugging Face Spaces uses port 7860 by default
+# Hugging Face yêu cầu ứng dụng phải chạy ở cổng 7860
 EXPOSE 7860
 
-# Run the application
+# Cấu hình để Python có thể tìm thấy thư viện trong thư mục server
+ENV PYTHONPATH="/app/server:${PYTHONPATH}"
+
+# Chạy FastAPI (app.py nằm trong thư mục server)
 CMD ["uvicorn", "server.app:app", "--host", "0.0.0.0", "--port", "7860"]

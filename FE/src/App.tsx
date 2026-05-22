@@ -5,6 +5,7 @@ import { StudioPage } from './features/studio/StudioPage';
 import { DashboardPage } from './features/dashboard/DashboardPage';
 import { DocsPage } from './features/docs/DocsPage';
 import { AuthPage } from './features/auth/AuthPage';
+import { ResetPasswordPage } from './features/auth/ResetPasswordPage';
 import { AccountPage } from './features/account/AccountPage';
 import { ActivityHistoryPage } from './features/account/ActivityHistoryPage';
 import { SettingsPage } from './features/account/SettingsPage';
@@ -21,6 +22,7 @@ function App() {
           <Route path="docs" element={<DocsPage />} />
           <Route path="login" element={<AuthPage />} />
           <Route path="signup" element={<AuthPage />} />
+          <Route path="reset-password" element={<ResetPasswordPage />} />
           <Route path="account" element={<AccountPage />} />
           <Route path="account/activity-history" element={<ActivityHistoryPage />} />
           <Route path="account/settings" element={<SettingsPage />} />

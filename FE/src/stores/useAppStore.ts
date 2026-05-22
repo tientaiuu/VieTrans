@@ -12,6 +12,7 @@ interface AppState {
   userEmail: string;
   userUsername: string;
   userAvatar: string | null;
+  token: string | null;
   emailNotifications: boolean;
   autoSaveHistory: boolean;
   defaultOutputFormat: 'png' | 'jpg' | 'webp';
@@ -20,7 +21,7 @@ interface AppState {
   setActivePage: (page: string) => void;
   openAuth: () => void;
   closeAuth: () => void;
-  login: (fullName: string, email: string) => void;
+  login: (fullName: string, email: string, token?: string) => void;
   updateProfile: (profile: { fullName: string; username: string }) => void;
   setUserAvatar: (avatar: string | null) => void;
   updateSettings: (settings: {
@@ -43,6 +44,7 @@ export const useAppStore = create<AppState>()(
       userEmail: '',
       userUsername: '',
       userAvatar: null,
+      token: null,
       emailNotifications: true,
       autoSaveHistory: true,
       defaultOutputFormat: 'png',
@@ -51,12 +53,13 @@ export const useAppStore = create<AppState>()(
       setActivePage: (page) => set({ activePage: page }),
       openAuth: () => set({ authOpen: true }),
       closeAuth: () => set({ authOpen: false }),
-      login: (fullName: string, email: string) =>
+      login: (fullName: string, email: string, token?: string) =>
         set({
           isLoggedIn: true,
           userFullName: fullName,
           userEmail: email,
           userUsername: email.split('@')[0] || 'user',
+          token: token || null,
         }),
       updateProfile: ({ fullName, username }) =>
         set({
@@ -71,7 +74,7 @@ export const useAppStore = create<AppState>()(
           autoSaveHistory,
           defaultOutputFormat,
         }),
-      logout: () => set({ isLoggedIn: false, userFullName: '', userEmail: '', userUsername: '', userAvatar: null }),
+      logout: () => set({ isLoggedIn: false, userFullName: '', userEmail: '', userUsername: '', userAvatar: null, token: null }),
     }),
     {
       name: 'vietrans-app-storage',

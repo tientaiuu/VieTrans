@@ -1,6 +1,6 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { History, Info, LogOut, Settings, UserRound } from 'lucide-react';
+import { History, Info, LogOut, UserRound } from 'lucide-react';
 
 type AccountSection = 'profile' | 'history' | 'settings' | 'information';
 
@@ -42,16 +42,7 @@ export const AccountSidebarNav: React.FC<AccountSidebarNavProps> = ({ activeSect
             </span>
           </button>
 
-          <button
-            type="button"
-            className={`account-sidebar-item ${activeSection === 'settings' ? 'is-active' : ''}`}
-            onClick={() => navigate('/account/settings')}
-          >
-            <span className="account-sidebar-item-main">
-              <Settings size={15} />
-              <span>Settings</span>
-            </span>
-          </button>
+
 
           <button
             type="button"

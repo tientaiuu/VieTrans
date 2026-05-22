@@ -1,7 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Eye, EyeOff, X } from 'lucide-react';
+import { Eye, EyeOff, X, Loader2, CheckCircle2, AlertCircle } from 'lucide-react';
 import { useAppStore } from '../../stores/useAppStore';
+import { registerUser, loginUser, forgotPassword } from '../../api';
+
+type TabType = 'login' | 'signup' | 'forgot';
 
 export const AuthPage: React.FC = () => {
   const { login } = useAppStore();
@@ -9,9 +12,9 @@ export const AuthPage: React.FC = () => {
   const location = useLocation();
 
   const referrerPath = (location.state as { from?: string } | null)?.from || '/';
-  const initialTab = location.pathname === '/signup' ? 'signup' : 'login';
+  const initialTab: TabType = location.pathname === '/signup' ? 'signup' : 'login';
 
-  const [tab, setTab] = useState<'login' | 'signup'>(initialTab);
+  const [tab, setTab] = useState<TabType>(initialTab);
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -20,6 +23,11 @@ export const AuthPage: React.FC = () => {
   const [isOpen, setIsOpen] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+
+  // API state
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
 
   useEffect(() => {
     const id = requestAnimationFrame(() => {
@@ -34,6 +42,12 @@ export const AuthPage: React.FC = () => {
     setIsOpen(true);
   }, [location.pathname]);
 
+  // Clear messages when switching tabs
+  useEffect(() => {
+    setError('');
+    setSuccess('');
+  }, [tab]);
+
   const close = () => {
     setIsOpen(false);
     setTimeout(() => {
@@ -41,23 +55,84 @@ export const AuthPage: React.FC = () => {
     }, 300);
   };
 
-  const submit = (e: React.FormEvent) => {
+  const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    console.log(tab === 'login' ? 'Signing in' : 'Signing up', email, rememberMe);
+    setError('');
+    setSuccess('');
 
-    if (tab === 'signup') {
-      setIsOpen(false);
-      setTimeout(() => {
-        navigate('/login', { state: { from: referrerPath }, replace: true });
-      }, 300);
+    // Client-side validation
+    if (tab === 'signup' && password !== confirmPassword) {
+      setError('Passwords do not match');
       return;
     }
 
-    login(fullName || 'User', email);
-    setIsOpen(false);
-    setTimeout(() => {
-      navigate(referrerPath);
-    }, 300);
+    if (tab === 'forgot') {
+      if (!email) {
+        setError('Please enter your email');
+        return;
+      }
+      setLoading(true);
+      try {
+        const res = await forgotPassword(email);
+        setSuccess(res.message);
+      } catch (err: unknown) {
+        setError(err instanceof Error ? err.message : 'Request failed');
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
+
+    if (tab === 'signup') {
+      if (!fullName || !email || !password || !confirmPassword) {
+        setError('Please fill in all fields');
+        return;
+      }
+      setLoading(true);
+      try {
+        const res = await registerUser(fullName, email, password, confirmPassword);
+        setSuccess(res.message);
+        // Switch to login tab after successful registration
+        setTimeout(() => {
+          setTab('login');
+          setSuccess('Account created! Please log in.');
+          setPassword('');
+          setConfirmPassword('');
+        }, 1500);
+      } catch (err: unknown) {
+        setError(err instanceof Error ? err.message : 'Registration failed');
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
+
+    // Login
+    if (!email || !password) {
+      setError('Please enter email and password');
+      return;
+    }
+    setLoading(true);
+    try {
+      const res = await loginUser(email, password, rememberMe);
+      login(res.user.fullName, res.user.email, res.token);
+      setIsOpen(false);
+      setTimeout(() => {
+        navigate(referrerPath);
+      }, 300);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Login failed');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const headingText = () => {
+    switch (tab) {
+      case 'login': return 'Nice to see you again';
+      case 'signup': return 'Welcome to VieTrans';
+      case 'forgot': return 'Reset your password';
+    }
   };
 
   return (
@@ -79,9 +154,23 @@ export const AuthPage: React.FC = () => {
           </div>
 
           <div className="auth-copy">
-            <h3>{tab === 'login' ? 'Nice to see you again' : 'Welcome to VieTrans'}</h3>
+            <h3>{headingText()}</h3>
           </div>
         </div>
+
+        {/* Status messages */}
+        {error && (
+          <div className="auth-message auth-message-error">
+            <AlertCircle size={16} />
+            <span>{error}</span>
+          </div>
+        )}
+        {success && (
+          <div className="auth-message auth-message-success">
+            <CheckCircle2 size={16} />
+            <span>{success}</span>
+          </div>
+        )}
 
         <form className="auth-form" onSubmit={submit} noValidate>
           {tab === 'signup' && (
@@ -94,6 +183,7 @@ export const AuthPage: React.FC = () => {
                 value={fullName}
                 onChange={(e) => setFullName(e.target.value)}
                 required
+                disabled={loading}
               />
             </>
           )}
@@ -106,31 +196,34 @@ export const AuthPage: React.FC = () => {
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             required
+            disabled={loading}
           />
-          <div className="auth-error" aria-hidden>
-            {!email ? '' : ''}
-          </div>
 
-          <label className="auth-label">Password</label>
-          <div className="auth-input-wrap">
-            <input
-              className="auth-input"
-              type={showPassword ? 'text' : 'password'}
-              placeholder="Enter password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-            />
-            <button
-              type="button"
-              className="auth-visibility"
-              aria-label={showPassword ? 'Hide password' : 'Show password'}
-              aria-pressed={showPassword}
-              onClick={() => setShowPassword((value) => !value)}
-            >
-              {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
-            </button>
-          </div>
+          {tab !== 'forgot' && (
+            <>
+              <label className="auth-label">Password</label>
+              <div className="auth-input-wrap">
+                <input
+                  className="auth-input"
+                  type={showPassword ? 'text' : 'password'}
+                  placeholder="Enter password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                  disabled={loading}
+                />
+                <button
+                  type="button"
+                  className="auth-visibility"
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                  aria-pressed={showPassword}
+                  onClick={() => setShowPassword((value) => !value)}
+                >
+                  {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
+                </button>
+              </div>
+            </>
+          )}
 
           {tab === 'signup' && (
             <>
@@ -143,6 +236,7 @@ export const AuthPage: React.FC = () => {
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
                   required
+                  disabled={loading}
                 />
                 <button
                   type="button"
@@ -170,15 +264,31 @@ export const AuthPage: React.FC = () => {
               </label>
 
               <div className="auth-forgot">
-                <button type="button" className="link-like">
+                <button
+                  type="button"
+                  className="link-like"
+                  onClick={() => setTab('forgot')}
+                >
                   Forgot password?
                 </button>
               </div>
             </div>
           )}
 
-          <button type="submit" className={`auth-submit ${tab === 'signup' ? 'auth-submit-signup' : ''}`}>
-            {tab === 'login' ? 'Sign in' : 'Create account'}
+          <button
+            type="submit"
+            className={`auth-submit ${tab === 'signup' ? 'auth-submit-signup' : ''}`}
+            disabled={loading}
+          >
+            {loading ? (
+              <Loader2 size={20} className="auth-spinner" />
+            ) : tab === 'login' ? (
+              'Sign in'
+            ) : tab === 'signup' ? (
+              'Create account'
+            ) : (
+              'Send reset link'
+            )}
           </button>
 
           {tab === 'login' && (
@@ -235,6 +345,19 @@ export const AuthPage: React.FC = () => {
                 onClick={() => navigate('/login', { state: { from: referrerPath }, replace: true })}
               >
                 Log in
+              </button>
+            </div>
+          )}
+
+          {tab === 'forgot' && (
+            <div className="auth-bottom">
+              <span>Remember your password?</span>
+              <button
+                type="button"
+                className="link-like"
+                onClick={() => setTab('login')}
+              >
+                Back to login
               </button>
             </div>
           )}

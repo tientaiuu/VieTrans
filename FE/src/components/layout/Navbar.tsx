@@ -142,56 +142,6 @@ export const Navbar: React.FC = () => {
 
       <div className="nr">
         <div className="nr-sig">System Operational</div>
-        <div className={`notification-wrap ${notificationsOpen ? 'open' : ''}`} ref={notificationsRef}>
-          <button
-            type="button"
-            className="thm-btn"
-            title="Notifications"
-            aria-label="Notifications"
-            aria-expanded={notificationsOpen}
-            onClick={handleNotificationToggle}
-          >
-            <Bell size={15} />
-            <span className="notification-badge" aria-hidden="true" />
-          </button>
-
-          {notificationsOpen && (
-            <div className="notification-panel" role="dialog" aria-label="Notifications">
-              <div className="notification-panel-head">
-                <h2>Notifications</h2>
-                <div className="notification-filter-group" role="tablist" aria-label="Notification filters">
-                  <button type="button" className="notification-filter-chip is-active">All</button>
-                </div>
-              </div>
-
-              <div className="notification-list">
-                {notifications.map((item) => (
-                  <article className="notification-item" key={item.id}>
-                    <div className={`notification-avatar notification-avatar-${item.accent}`}>
-                      <UserRound size={20} />
-                      <span className={`notification-avatar-mark notification-avatar-mark-${item.accent}`}>
-                        {getNotificationIcon(item.type)}
-                      </span>
-                    </div>
-
-                    <div className="notification-copy">
-                      <div className="notification-copy-top">
-                        <div className="notification-copy-head">
-                          <strong>{item.title}</strong>
-                          <span>{item.time}</span>
-                        </div>
-                        <span className="notification-status-dot" aria-hidden="true" />
-                      </div>
-
-                      <p className="notification-message">{item.message}</p>
-                      {item.detail ? <p className="notification-detail">{item.detail}</p> : null}
-                    </div>
-                  </article>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
 
         {isLoggedIn ? (
           <div className={`account-menu-wrap ${accountMenuOpen ? 'open' : ''}`} ref={accountMenuRef}>
@@ -242,12 +192,6 @@ export const Navbar: React.FC = () => {
                       <span>Activity History</span>
                     </span>
                   </button>
-                  <button className="account-dropdown-item" type="button" onClick={() => handleAccountAction('/account/settings')}>
-                    <span className="account-dropdown-item-main">
-                      <Settings size={15} className="account-dropdown-icon" />
-                      <span>Settings</span>
-                    </span>
-                  </button>
                   <button className="account-dropdown-item" type="button" onClick={() => handleAccountAction('/account/information')}>
                     <span className="account-dropdown-item-main">
                       <Info size={15} className="account-dropdown-icon" />
@@ -276,7 +220,67 @@ export const Navbar: React.FC = () => {
             Sign up / Login
           </button>
         )}
-        <Link to="/studio" className="nr-btn">Open Studio</Link>
+
+        <div className={`notification-wrap ${notificationsOpen ? 'open' : ''}`} ref={notificationsRef}>
+          <button
+            type="button"
+            className="thm-btn"
+            title="Notifications"
+            aria-label="Notifications"
+            aria-expanded={notificationsOpen}
+            onClick={handleNotificationToggle}
+          >
+            <Bell size={22} />
+            <span className="notification-badge" aria-hidden="true" />
+          </button>
+
+          {notificationsOpen && (
+            <div className="notification-panel" role="dialog" aria-label="Notifications">
+              <div className="notification-panel-head">
+                <h2>Notifications</h2>
+                <div className="notification-filter-group" role="tablist" aria-label="Notification filters">
+                  <button type="button" className="notification-filter-chip is-active">All</button>
+                </div>
+              </div>
+
+              <div className="notification-list">
+                {notifications.map((item) => (
+                  <article className="notification-item" key={item.id}>
+                    <div className={`notification-avatar notification-avatar-${item.accent}`}>
+                      <UserRound size={20} />
+                      <span className={`notification-avatar-mark notification-avatar-mark-${item.accent}`}>
+                        {getNotificationIcon(item.type)}
+                      </span>
+                    </div>
+
+                    <div className="notification-copy">
+                      <div className="notification-copy-top">
+                        <div className="notification-copy-head">
+                          <strong>{item.title}</strong>
+                          <span>{item.time}</span>
+                        </div>
+                        <span className="notification-status-dot" aria-hidden="true" />
+                      </div>
+
+                      <p className="notification-message">{item.message}</p>
+                      {item.detail ? <p className="notification-detail">{item.detail}</p> : null}
+                    </div>
+                  </article>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        <button
+          type="button"
+          className="thm-btn"
+          title="Settings"
+          aria-label="Settings"
+          onClick={() => navigate('/account/settings')}
+        >
+          <Settings size={22} />
+        </button>
       </div>
     </nav>
   );

@@ -17,12 +17,18 @@ import random
 from pathlib import Path
 from typing import Optional
 
-from fastapi import FastAPI, HTTPException, UploadFile, File, Query
+from fastapi import FastAPI, HTTPException, UploadFile, File, Query, Depends, Request
+from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
+from fastapi.security.utils import get_authorization_scheme_param
+from datetime import datetime, timezone
 from PIL import Image
 import asyncio
 import uuid
+
+# Import auth module
+from auth import router as auth_router, init_mongo, close_mongo, decode_token, get_db, get_current_user
 
 # Import our PyTorch inference pipeline
 try:
@@ -142,8 +148,15 @@ app.add_middleware(
 )
 
 
+# Mount auth router
+app.include_router(auth_router)
+
+
 @app.on_event("startup")
 async def startup():
+    # Initialize MongoDB for auth
+    await init_mongo()
+
     _load_text_cache()
     _scan_sample_ids()
     _build_input_hashes()
@@ -152,6 +165,11 @@ async def startup():
     if dbx_pipeline:
         # Preload the 4 transformer models into RAM/VRAM
         await asyncio.to_thread(dbx_pipeline.load_models)
+
+
+@app.on_event("shutdown")
+async def shutdown():
+    await close_mongo()
 
 
 # ─── Endpoints ────────────────────────────────────────────────────────────────
@@ -245,9 +263,8 @@ async def get_sample(sample_id: str):
         },
     }
 
-
 @app.get("/api/images/{stage}/{sample_id}")
-async def get_image(stage: str, sample_id: str):
+async def get_image(stage: str, sample_id: str, download: bool = False):
     """Serve a pipeline-stage image with cache headers."""
     if stage not in PATHS:
         raise HTTPException(400, f"Unknown stage: {stage}")
@@ -261,14 +278,81 @@ async def get_image(stage: str, sample_id: str):
     if not img_path.exists():
         raise HTTPException(404, f"Image not found: {stage}/{sample_id}")
 
+    headers = {
+        "Cache-Control": "public, max-age=86400, immutable",
+        "X-Pipeline-Stage": stage,
+    }
+    
+    if download:
+        headers["Content-Disposition"] = f'attachment; filename="{stage}_{sample_id}.jpg"'
+
     return FileResponse(
         img_path,
         media_type="image/jpeg",
-        headers={
-            "Cache-Control": "public, max-age=86400, immutable",
-            "X-Pipeline-Stage": stage,
-        },
+        headers=headers,
     )
+
+
+@app.get("/api/download/{stage}/{sample_id}")
+async def download_image(
+    stage: str,
+    sample_id: str,
+    filename: str = Query("translated_image", description="Download filename (without extension)"),
+    format: str = Query("jpg", description="Image format: jpg, png, or webp"),
+):
+    """Download a pipeline-stage image with custom filename and format conversion."""
+    if stage not in PATHS:
+        raise HTTPException(400, f"Unknown stage: {stage}")
+
+    fmt = format.lower().strip()
+    if fmt not in ("jpg", "jpeg", "png", "webp"):
+        raise HTTPException(400, f"Unsupported format: {format}. Use jpg, png, or webp.")
+
+    # Resolve source image path
+    if "-" in sample_id or len(sample_id) > 10:
+        img_path = LIVE_DIR / sample_id / f"{stage}.jpg"
+    else:
+        img_path = PATHS[stage] / f"{sample_id}.jpg"
+
+    if not img_path.exists():
+        raise HTTPException(404, f"Image not found: {stage}/{sample_id}")
+
+    # Normalize format
+    if fmt == "jpeg":
+        fmt = "jpg"
+
+    # Map format to PIL format name and MIME type
+    fmt_map = {
+        "jpg":  ("JPEG", "image/jpeg",  "jpg"),
+        "png":  ("PNG",  "image/png",   "png"),
+        "webp": ("WEBP", "image/webp",  "webp"),
+    }
+    pil_fmt, mime_type, ext = fmt_map[fmt]
+
+    # Sanitize filename
+    safe_name = "".join(c for c in filename if c.isalnum() or c in (' ', '-', '_', '.')).strip()
+    if not safe_name:
+        safe_name = "translated_image"
+
+    # Convert image to requested format
+    try:
+        img = Image.open(img_path).convert("RGB")
+        buf = io.BytesIO()
+        save_kwargs = {}
+        if pil_fmt == "JPEG":
+            save_kwargs["quality"] = 95
+        elif pil_fmt == "WEBP":
+            save_kwargs["quality"] = 90
+        img.save(buf, pil_fmt, **save_kwargs)
+        buf.seek(0)
+    except Exception as e:
+        raise HTTPException(500, f"Image conversion failed: {e}")
+
+    from fastapi.responses import StreamingResponse
+    headers = {
+        "Content-Disposition": f'attachment; filename="{safe_name}.{ext}"',
+    }
+    return StreamingResponse(buf, media_type=mime_type, headers=headers)
 
 
 @app.get("/api/images/thumb/{stage}/{sample_id}")
@@ -305,8 +389,24 @@ async def get_thumbnail(stage: str, sample_id: str):
     )
 
 
+async def get_optional_user(request: Request):
+    authorization = request.headers.get("Authorization")
+    scheme, token = get_authorization_scheme_param(authorization)
+    if not authorization or scheme.lower() != "bearer":
+        return None
+    try:
+        payload = decode_token(token)
+        email = payload.get("sub")
+        if not email: return None
+        db = get_db()
+        user = await db.users.find_one({"email": email})
+        return user
+    except Exception:
+        return None
+
+
 @app.post("/api/upload")
-async def upload_and_match(file: UploadFile = File(...)):
+async def upload_and_match(request: Request, file: UploadFile = File(...)):
     """
     Accept an uploaded image, save it securely, and sequence it 
     through the live Pytorch pipeline. Queues execution if busy.
@@ -345,20 +445,82 @@ async def upload_and_match(file: UploadFile = File(...)):
             raise HTTPException(500, f"Inference pipeline failed: {e}")
 
     base = "/api/images"
+    stages = {
+        "input":   f"{base}/input/{uid}",
+        "back":    f"{base}/back/{uid}",
+        "text_en": f"{base}/text_en/{uid}",
+        "text_vi": f"{base}/text_vi/{uid}",
+        "fuse":    f"{base}/fuse/{uid}",
+    }
+
+    user = await get_optional_user(request)
+    if user:
+        db = get_db()
+        await db.histories.insert_one({
+            "user_email": user["email"],
+            "sample_id": uid,
+            "tit": tit,
+            "ocr": "",
+            "stages": stages,
+            "created_at": datetime.now(timezone.utc)
+        })
+
     return {
         "matched_id": uid,
         "match_quality": "live_inference",
         "hamming_distance": 0,
         "tit": tit,
         "ocr": "",  # OCR skipped for live inputs
-        "stages": {
-            "input":   f"{base}/input/{uid}",
-            "back":    f"{base}/back/{uid}",
-            "text_en": f"{base}/text_en/{uid}",
-            "text_vi": f"{base}/text_vi/{uid}",
-            "fuse":    f"{base}/fuse/{uid}",
-        },
+        "stages": stages,
     }
+
+class UpdateFuseRequest(BaseModel):
+    image_data: str
+
+@app.post("/api/update-fuse/{sample_id}")
+async def update_fuse(sample_id: str, req: UpdateFuseRequest):
+    if "-" not in sample_id and len(sample_id) <= 10:
+        raise HTTPException(400, "Can only update live samples")
+    
+    fuse_path = LIVE_DIR / sample_id / "fuse.jpg"
+    if not fuse_path.exists():
+        raise HTTPException(404, "Sample not found")
+
+    import base64
+    try:
+        header, encoded = req.image_data.split(",", 1)
+        data = base64.b64decode(encoded)
+        img = Image.open(io.BytesIO(data)).convert("RGB")
+        img.save(fuse_path, "JPEG", quality=95)
+    except Exception as e:
+        raise HTTPException(400, f"Invalid image data: {e}")
+    
+    return {"status": "ok"}
+
+
+@app.get("/api/history")
+async def get_history(user=Depends(get_current_user)):
+    db = get_db()
+    cursor = db.histories.find({"user_email": user["email"]}).sort("created_at", -1)
+    histories = []
+    async for doc in cursor:
+        histories.append({
+            "id": doc["sample_id"],
+            "tit": doc.get("tit", ""),
+            "ocr": doc.get("ocr", ""),
+            "stages": doc.get("stages", {}),
+            "created_at": doc["created_at"].isoformat()
+        })
+    return {"histories": histories}
+
+
+@app.delete("/api/history/{sample_id}")
+async def delete_history(sample_id: str, user=Depends(get_current_user)):
+    db = get_db()
+    result = await db.histories.delete_one({"user_email": user["email"], "sample_id": sample_id})
+    if result.deleted_count == 0:
+        raise HTTPException(404, "History not found")
+    return {"status": "ok"}
 
 
 @app.get("/api/random")
