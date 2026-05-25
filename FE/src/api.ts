@@ -123,8 +123,20 @@ export interface HistoryItem {
   created_at: string;
 }
 
-export async function getHistory(token: string): Promise<HistoryItem[]> {
-  const res = await fetch(`${API_BASE}/api/history`, {
+export async function getHistory(
+  token: string,
+  options?: { date?: string; tzOffsetMinutes?: number }
+): Promise<HistoryItem[]> {
+  const params = new URLSearchParams();
+  if (options?.date) {
+    params.set('date', options.date);
+  }
+  if (typeof options?.tzOffsetMinutes === 'number') {
+    params.set('tz_offset_minutes', String(options.tzOffsetMinutes));
+  }
+
+  const query = params.toString();
+  const res = await fetch(`${API_BASE}/api/history${query ? `?${query}` : ''}`, {
     headers: { Authorization: `Bearer ${token}` },
   });
   if (!res.ok) throw new Error('Failed to fetch history');

@@ -22,7 +22,7 @@ from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.security.utils import get_authorization_scheme_param
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from PIL import Image
 import asyncio
 import uuid
@@ -499,9 +499,25 @@ async def update_fuse(sample_id: str, req: UpdateFuseRequest):
 
 
 @app.get("/api/history")
-async def get_history(user=Depends(get_current_user)):
+async def get_history(
+    date: Optional[str] = Query(None, description="Filter by local date in YYYY-MM-DD format"),
+    tz_offset_minutes: int = Query(0, description="Client timezone offset in minutes from Date.getTimezoneOffset()"),
+    user=Depends(get_current_user),
+):
     db = get_db()
-    cursor = db.histories.find({"user_email": user["email"]}).sort("created_at", -1)
+    query = {"user_email": user["email"]}
+
+    if date:
+        try:
+            local_day = datetime.strptime(date, "%Y-%m-%d")
+        except ValueError:
+            raise HTTPException(400, "Invalid date format. Use YYYY-MM-DD")
+
+        utc_start = (local_day + timedelta(minutes=tz_offset_minutes)).replace(tzinfo=timezone.utc)
+        utc_end = utc_start + timedelta(days=1)
+        query["created_at"] = {"$gte": utc_start, "$lt": utc_end}
+
+    cursor = db.histories.find(query).sort("created_at", -1)
     histories = []
     async for doc in cursor:
         histories.append({
