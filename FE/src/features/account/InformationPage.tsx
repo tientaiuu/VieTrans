@@ -1,5 +1,5 @@
 import React from 'react';
-import { Bot, Boxes, CircleHelp, Cpu, Globe2, Layers3 } from 'lucide-react';
+import { Bot, Boxes, Cpu, Globe2, Layers3 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAppStore } from '../../stores/useAppStore';
 import { AccountSidebarNav } from './AccountSidebarNav';
@@ -24,19 +24,24 @@ const technologyItems = [
 
 const modelItems = [
   {
-    icon: Bot,
-    title: 'DebackX architecture',
-    description: 'The application uses an end-to-end architecture based on the DebackX model, organized into three core subsystems for separation, image translation, and fusion.',
+    icon: Layers3,
+    title: '01 / Text-Background Separation',
+    description: 'The separation stage isolates a clean background image from the source text image using the SeparateEncoder model, preserving original background context.',
+  },
+  {
+    icon: Boxes,
+    title: '02 / Visual Feature Quantization',
+    description: 'The quantization stage utilizes a discrete Codebook to represent image features of the text as indices, bridging visual and textual representations.',
   },
   {
     icon: Cpu,
-    title: 'Separation and translation',
-    description: 'The separation stage isolates a clean background image from the source text image to preserve scene context. The image translation stage converts English text images directly into Vietnamese text images without relying on OCR, helping retain layout, styling, and typography.',
+    title: '03 / Neural Code Translation',
+    description: 'The translation stage uses the AuxTITTransformer model to translate quantized source codes directly into target codes, bypassing standard OCR completely.',
   },
   {
-    icon: CircleHelp,
-    title: 'Fusion output',
-    description: 'The fusion stage composites the translated text layer back onto the clean background to produce the final output image.',
+    icon: Bot,
+    title: '04 / Text-Background Fusion',
+    description: 'The fusion stage composites the reconstructed target text image back onto the clean background layer using the FuseDecoder to produce the final seamlessly translated output.',
   },
 ];
 

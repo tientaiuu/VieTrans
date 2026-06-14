@@ -1,9 +1,19 @@
 import os
 import sys
+import warnings
+
+# Suppress FutureWarnings from third-party libraries (e.g. vector_quantize_pytorch)
+# that use deprecated torch.cuda.amp.autocast internally - these are harmless.
+warnings.filterwarnings("ignore", category=FutureWarning, module="vector_quantize_pytorch")
+warnings.filterwarnings("ignore", message=".*torch.cuda.amp.autocast.*", category=FutureWarning)
+
 import torch
+from torch.amp import autocast
 import sentencepiece as sp
 from PIL import Image
 from torchvision import transforms, utils as vutils
+import gc
+
 
 # Setup paths to import from src/
 SERVER_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -49,47 +59,50 @@ class DebackPipeline:
         """Preload all models into RAM/VRAM to eliminate I/O delay during inference."""
         print("[Deback Pipeline] Loading models...")
 
-        # --- Auto-Download missing checkpoints from Hugging Face ---
-        repo_id = "masterdzzzz/debackX"
-        models_to_download = [
-            ("checkpoint_best0.023.pt", os.path.join(MODELS_DIR, "separate")),
-            ("checkpoint_best0.039.pt", os.path.join(MODELS_DIR, "codebook")),
-            ("checkpoint_best0.846.pt", os.path.join(MODELS_DIR, "translation")),
-            ("checkpoint_best0.006.pt", os.path.join(MODELS_DIR, "fuse")),
-        ]
-        
-        try:
-            from huggingface_hub import hf_hub_download
-            import shutil
-            for filename, local_dir in models_to_download:
-                local_path = os.path.join(local_dir, filename)
-                if not os.path.exists(local_path):
-                    print(f"[Deback Pipeline] Downloading {filename} from Hugging Face ({repo_id})...")
-                    os.makedirs(local_dir, exist_ok=True)
-                    cached_path = hf_hub_download(repo_id=repo_id, filename=filename)
-                    shutil.copy2(cached_path, local_path)
-                    print(f"[Deback Pipeline] Saved {filename} to {local_path}")
-        except ImportError:
-            print("[Deback Pipeline] WARNING: 'huggingface_hub' is not installed. Run 'pip install huggingface_hub' to enable auto-download.")
-        except Exception as e:
-            print(f"[Deback Pipeline] Error downloading models: {e}")
+        # --- Auto-Download missing checkpoints from Hugging Face (Bypassed as per request) ---
+        # repo_id = "masterdzzzz/debackX"
+        # models_to_download = [
+        #     ("checkpoint_best0.023.pt", os.path.join(MODELS_DIR, "separate")),
+        #     ("checkpoint_best0.039.pt", os.path.join(MODELS_DIR, "codebook")),
+        #     ("checkpoint_best0.846.pt", os.path.join(MODELS_DIR, "translation")),
+        #     ("checkpoint_best0.006.pt", os.path.join(MODELS_DIR, "fuse")),
+        # ]
+        # 
+        # try:
+        #     from huggingface_hub import hf_hub_download
+        #     import shutil
+        #     for filename, local_dir in models_to_download:
+        #         local_path = os.path.join(local_dir, filename)
+        #         if not os.path.exists(local_path):
+        #             print(f"[Deback Pipeline] Downloading {filename} from Hugging Face ({repo_id})...")
+        #             os.makedirs(local_dir, exist_ok=True)
+        #             cached_path = hf_hub_download(repo_id=repo_id, filename=filename)
+        #             shutil.copy2(cached_path, local_path)
+        #             print(f"[Deback Pipeline] Saved {filename} to {local_path}")
+        # except ImportError:
+        #     print("[Deback Pipeline] WARNING: 'huggingface_hub' is not installed. Run 'pip install huggingface_hub' to enable auto-download.")
+        # except Exception as e:
+        #     print(f"[Deback Pipeline] Error downloading models: {e}")
 
         # 1. Separate
-        sep_ckpt_path = os.path.join(MODELS_DIR, "separate", "checkpoint_best0.023.pt")
+        sep_ckpt_path = os.path.join(MODELS_DIR, "separate", "checkpoint_best0.021.pt")
         sep_config_path = os.path.join(CONFIGS_DIR, "config-separate.json")
         _, _, sep_mcfg = load_config(sep_config_path)
         self.separate_model = SeparateEncoder(sep_mcfg["patch_size"])
-        self.separate_model.load_state_dict(torch.load(sep_ckpt_path, map_location="cpu")["model_state"])
+        sep_state_dict = torch.load(sep_ckpt_path, map_location="cpu", weights_only=False)["model_state"]
+        self.separate_model.load_state_dict(sep_state_dict)
         self.separate_model.to(self.device).eval()
+        del sep_state_dict
+        gc.collect()
 
         # 2. Codebook
-        cb_ckpt_path = os.path.join(MODELS_DIR, "codebook", "checkpoint_best0.039.pt")
+        cb_ckpt_path = os.path.join(MODELS_DIR, "codebook", "checkpoint_best0.020.pt")
         cb_config_path = os.path.join(CONFIGS_DIR, "config-codebook.json")
         _, _, cb_mcfg = load_config(cb_config_path)
         self.codebook_model = Codebook(cb_mcfg["patch_size"], cb_mcfg["dim"], cb_mcfg["codebook_dim"], cb_mcfg["codebook_size"])
         
         # Sửa lỗi size mismatch cho vq._codebook.initted
-        cb_state_dict = torch.load(cb_ckpt_path, map_location="cpu")["model_state"]
+        cb_state_dict = torch.load(cb_ckpt_path, map_location="cpu", weights_only=False)["model_state"]
         for key in list(cb_state_dict.keys()):
             if "vq._codebook.initted" in key:
                 if cb_state_dict[key].shape != self.codebook_model.state_dict()[key].shape:
@@ -98,9 +111,11 @@ class DebackPipeline:
         
         self.codebook_model.load_state_dict(cb_state_dict)
         self.codebook_model.to(self.device).eval()
+        del cb_state_dict
+        gc.collect()
 
         # 3. Translation
-        trans_ckpt_path = os.path.join(MODELS_DIR, "translation", "checkpoint_best0.846.pt")
+        trans_ckpt_path = os.path.join(MODELS_DIR, "translation", "checkpoint_best0.861.pt")
         trans_config_path = os.path.join(CONFIGS_DIR, "config-translation.json")
         trans_data_cfg, _, trans_mcfg = load_config(trans_config_path)
         
@@ -110,8 +125,34 @@ class DebackPipeline:
             sp_path = os.path.join(DEBACK_DIR, "scripts", "multi30k.model")
         
         self.text_sp = sp.SentencePieceProcessor(model_file=sp_path)
-        self.text_bos, self.text_eos, self.text_pad_id = self.text_sp.piece_to_id(['<s>', '</s>', '<pad>'])
-        num_vocab = self.text_sp.piece_size()
+        
+        # Retrieve built-in SentencePiece control token IDs safely
+        self.text_bos = self.text_sp.bos_id()
+        self.text_eos = self.text_sp.eos_id()
+        self.text_pad_id = self.text_sp.pad_id()
+        
+        # Fallback to piece_to_id if built-in methods return -1
+        if self.text_bos == -1:
+            self.text_bos = self.text_sp.piece_to_id('<s>')
+        if self.text_eos == -1:
+            self.text_eos = self.text_sp.piece_to_id('</s>')
+        if self.text_pad_id == -1:
+            self.text_pad_id = self.text_sp.piece_to_id('<pad>')
+            
+        # Hard fallback to standard vocab indices if still not found
+        if self.text_bos == -1: self.text_bos = 1
+        if self.text_eos == -1: self.text_eos = 2
+        if self.text_pad_id == -1: self.text_pad_id = 3
+        
+        print(f"[Deback Pipeline] Special Token IDs resolved: BOS={self.text_bos}, EOS={self.text_eos}, PAD={self.text_pad_id}")
+        
+        # Dynamically determine num_vocab from checkpoint to avoid size mismatch
+        trans_state_dict = torch.load(trans_ckpt_path, map_location="cpu", weights_only=False)["model_state"]
+        if "text_embedding.embedding_layer.weight" in trans_state_dict:
+            num_vocab = trans_state_dict["text_embedding.embedding_layer.weight"].shape[0]
+            print(f"[Deback Pipeline] Dynamically setting translation num_vocab to {num_vocab} from checkpoint.")
+        else:
+            num_vocab = self.text_sp.piece_size()
 
         self.translation_model = AuxTITTransformer(
             num_vocab, cb_mcfg["codebook_size"] + 2, trans_mcfg["text_d_model"], 
@@ -119,16 +160,21 @@ class DebackPipeline:
             trans_mcfg["text_n_head"], trans_mcfg["code_n_head"], trans_mcfg["text_l"], 
             trans_mcfg["code_l"], self.text_pad_id, trans_mcfg["dropout"]
         )
-        self.translation_model.load_state_dict(torch.load(trans_ckpt_path, map_location="cpu")["model_state"])
+        self.translation_model.load_state_dict(trans_state_dict)
         self.translation_model.to(self.device).eval()
+        del trans_state_dict
+        gc.collect()
 
         # 4. Fuse
         fuse_ckpt_path = os.path.join(MODELS_DIR, "fuse", "checkpoint_best0.006.pt")
         fuse_config_path = os.path.join(CONFIGS_DIR, "config-fuse.json")
         _, _, fuse_mcfg = load_config(fuse_config_path)
         self.fuse_model = FuseDecoder(fuse_mcfg["patch_size"])
-        self.fuse_model.load_state_dict(torch.load(fuse_ckpt_path, map_location="cpu")["model_state"])
+        fuse_state_dict = torch.load(fuse_ckpt_path, map_location="cpu", weights_only=False)["model_state"]
+        self.fuse_model.load_state_dict(fuse_state_dict)
         self.fuse_model.to(self.device).eval()
+        del fuse_state_dict
+        gc.collect()
         
         self.loaded = True
         print("[Deback Pipeline] All models loaded successfully.")
@@ -156,11 +202,16 @@ class DebackPipeline:
         img_tensor = self.transform(img).unsqueeze(0).to(self.device) # Add batch dimension
 
         with torch.no_grad():
-            from torch import autocast
-            # Use autocast if MPS or CUDA is available to speed up execution
-            device_type = 'cuda' if self.device.type == 'cuda' else ('mps' if self.device.type == 'mps' else 'cpu')
+            from contextlib import nullcontext
             
-            with autocast(device_type=device_type, enabled=device_type in ['cuda', 'mps']):
+            # Use autocast only on CUDA, as CPU/MPS autocast is highly version-dependent and often unsupported
+            is_cuda = self.device.type == 'cuda'
+            if is_cuda:
+                ctx = autocast(device_type='cuda')
+            else:
+                ctx = nullcontext()
+                
+            with ctx:
                 
                 # --- STAGE 1: SEPARATE ---
                 sep_out = self.separate_model(img_tensor)
@@ -188,7 +239,8 @@ class DebackPipeline:
                 
                 # Save stage 2
                 vutils.save_image(tgt_img_tensor[0] * 0.5 + 0.5, text_vi_path)
-                translated_str = self.text_sp.decode(tgt_text.tolist())
+                valid_ids = [tid for tid in tgt_text.tolist() if 0 <= tid < self.text_sp.piece_size()]
+                translated_str = self.text_sp.decode(valid_ids)
                 with open(tit_path, "w", encoding="utf-8") as f:
                     f.write(translated_str)
 

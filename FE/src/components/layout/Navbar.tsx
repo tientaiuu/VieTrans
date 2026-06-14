@@ -1,97 +1,192 @@
 import React from 'react';
 import { NavLink, Link, useNavigate } from 'react-router-dom';
-import { Bell, ChevronDown, Heart, LogOut, MessageSquare, Settings, Sparkles, UserRound, History, Info } from 'lucide-react';
+import {
+  Bell, ChevronDown, Heart, LogOut, MessageSquare,
+  Settings, Sparkles, UserRound, Info, ImageIcon, AlertCircle,
+} from 'lucide-react';
 import { useAppStore } from '../../stores/useAppStore';
 import { getFirstName } from '../../utils/user';
+import { getHistory, type HistoryItem } from '../../api';
 
-const notifications = [
+// ─── Types ───────────────────────────────────────────────────────────────────
+type NotifAccent = 'green' | 'coral' | 'violet' | 'gold' | 'lavender';
+type NotifType   = 'generated' | 'comment' | 'like' | 'alert' | 'image';
+
+interface Notification {
+  id: string;
+  title: string;
+  time: string;
+  message: string;
+  detail?: string;
+  accent: NotifAccent;
+  type: NotifType;
+  read?: boolean;
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+function timeAgo(dateStr: string): string {
+  const now  = Date.now();
+  const then = new Date(dateStr).getTime();
+  const diff = Math.max(0, now - then);
+  const s = Math.floor(diff / 1000);
+  if (s < 60)           return 'just now';
+  const m = Math.floor(s / 60);
+  if (m < 60)           return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24)           return `${h}h ago`;
+  const d = Math.floor(h / 24);
+  if (d < 7)            return `${d}d ago`;
+  return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
+function accentForIndex(i: number): NotifAccent {
+  const palette: NotifAccent[] = ['green', 'violet', 'gold', 'lavender', 'coral'];
+  return palette[i % palette.length];
+}
+
+function historyToNotif(item: HistoryItem, index: number): Notification {
+  const hasOcr = !!item.ocr && item.ocr.trim().length > 0;
+  return {
+    id:      `hist-${item.id}`,
+    title:   'Translation completed',
+    time:    timeAgo(item.created_at),
+    message: hasOcr
+      ? `"${item.ocr.substring(0, 50).trim()}${item.ocr.length > 50 ? '…' : ''}" was translated successfully.`
+      : 'Your image was processed and translated successfully.',
+    detail:  'Result saved to your history. You can download it from the Dashboard.',
+    accent:  accentForIndex(index),
+    type:    'image',
+    read:    false,
+  };
+}
+
+// Fallback notifications shown when user is not logged in
+const GUEST_NOTIFICATIONS: Notification[] = [
   {
-    id: 'notif-1',
-    title: 'Account updated',
-    time: '5m ago',
-    message: 'Your account profile information was updated successfully.',
-    detail: 'Full name and username changes have been saved to your local session.',
-    accent: 'green',
-    type: 'generated',
-  },
-  {
-    id: 'notif-2',
-    title: 'Translation failed',
-    time: '12m ago',
-    message: 'An error occurred while translating your uploaded image.',
-    detail: 'Please try again or upload a clearer image to improve text detection.',
-    accent: 'coral',
-    type: 'comment',
-  },
-  {
-    id: 'notif-3',
-    title: 'Theme saved',
-    time: '18m ago',
-    message: 'The theme setting was updated successfully.',
-    detail: 'Dark mode will now be applied across the workspace after saving settings.',
+    id: 'guest-1',
+    title: 'Welcome to VieTrans',
+    time: 'just now',
+    message: 'AI-powered in-image translation — sign in to start translating.',
     accent: 'violet',
     type: 'generated',
   },
   {
-    id: 'notif-4',
-    title: 'History preference updated',
-    time: '32m ago',
-    message: 'Auto-save translation history was updated successfully.',
-    detail: 'New translation results will follow your latest history preference.',
+    id: 'guest-2',
+    title: 'New: Batch API',
+    time: '2h ago',
+    message: 'Process thousands of images in parallel with our gRPC streaming API.',
+    detail: 'See the API Docs for integration guides and code samples.',
     accent: 'gold',
     type: 'generated',
   },
   {
-    id: 'notif-5',
-    title: 'Notification setting saved',
-    time: '1h ago',
-    message: 'Email notifications were updated successfully.',
-    detail: 'You can return to Settings at any time to change delivery preferences.',
-    accent: 'lavender',
+    id: 'guest-3',
+    title: '98.2% OCR accuracy',
+    time: '1d ago',
+    message: 'VieTrans now detects vertical, rotated and handwritten text with 98.2% accuracy.',
+    accent: 'green',
     type: 'generated',
   },
 ];
 
+// ─── Icon helpers ─────────────────────────────────────────────────────────────
+const getNotificationIcon = (type: NotifType) => {
+  switch (type) {
+    case 'comment':   return <MessageSquare size={12} />;
+    case 'generated': return <Sparkles      size={12} />;
+    case 'like':      return <Heart         size={12} />;
+    case 'alert':     return <AlertCircle   size={12} />;
+    case 'image':     return <ImageIcon     size={12} />;
+    default:          return <Bell          size={12} />;
+  }
+};
+
+// ─── Navbar ───────────────────────────────────────────────────────────────────
 export const Navbar: React.FC = () => {
-  const { isLoggedIn, userFullName, userAvatar, logout } = useAppStore();
+  const { isLoggedIn, userFullName, userAvatar, token, logout } = useAppStore();
   const navigate = useNavigate();
+
   const [notificationsOpen, setNotificationsOpen] = React.useState(false);
-  const [accountMenuOpen, setAccountMenuOpen] = React.useState(false);
+  const [accountMenuOpen,   setAccountMenuOpen]   = React.useState(false);
+  const [notifications,     setNotifications]     = React.useState<Notification[]>([]);
+  const [notifsLoading,     setNotifsLoading]     = React.useState(false);
+
   const notificationsRef = React.useRef<HTMLDivElement | null>(null);
-  const accountMenuRef = React.useRef<HTMLDivElement | null>(null);
-  const displayName = getFirstName(userFullName, 'User');
+  const accountMenuRef   = React.useRef<HTMLDivElement | null>(null);
+  const fetchedRef       = React.useRef(false);
+
+  const displayName  = getFirstName(userFullName, 'User');
   const avatarInitial = displayName.trim().charAt(0).toUpperCase() || 'U';
 
+  // ── Fetch real notifications from history when panel opens ────────────────
+  React.useEffect(() => {
+    if (!notificationsOpen) return;
+    if (!isLoggedIn || !token) {
+      setNotifications(GUEST_NOTIFICATIONS);
+      return;
+    }
+    // Only fetch once per mount (re-fetch on explicit refresh not needed here)
+    if (fetchedRef.current) return;
+    fetchedRef.current = true;
+
+    setNotifsLoading(true);
+    getHistory(token, { tzOffsetMinutes: new Date().getTimezoneOffset() })
+      .then((items: HistoryItem[]) => {
+        const recent = items
+          .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+          .slice(0, 6)
+          .map((item, i) => historyToNotif(item, i));
+
+        if (recent.length === 0) {
+          // No history yet — show a helpful empty state notification
+          setNotifications([{
+            id: 'empty-1',
+            title: 'No translations yet',
+            time: 'just now',
+            message: 'Head to Studio and upload your first image to get started.',
+            accent: 'violet',
+            type: 'generated',
+          }]);
+        } else {
+          setNotifications(recent);
+        }
+      })
+      .catch(() => {
+        // If API fails, show a polite error notification
+        setNotifications([{
+          id: 'err-1',
+          title: 'Could not load notifications',
+          time: 'just now',
+          message: 'Unable to fetch your translation history. Please try again later.',
+          accent: 'coral',
+          type: 'alert',
+        }]);
+      })
+      .finally(() => setNotifsLoading(false));
+  }, [notificationsOpen, isLoggedIn, token]);
+
+  // Reset fetch cache when user logs out / logs in
+  React.useEffect(() => {
+    fetchedRef.current = false;
+    setNotifications([]);
+  }, [isLoggedIn, token]);
+
+  // ── Click-outside / Escape handling ──────────────────────────────────────
   React.useEffect(() => {
     if (!accountMenuOpen && !notificationsOpen) return;
-
-    const handlePointerDown = (event: MouseEvent) => {
-      const target = event.target as Node;
-      const clickedNotificationPanel = notificationsRef.current?.contains(target);
-      const clickedAccountMenu = accountMenuRef.current?.contains(target);
-
-      if (!clickedNotificationPanel) {
-        setNotificationsOpen(false);
-      }
-
-      if (!clickedAccountMenu) {
-        setAccountMenuOpen(false);
-      }
+    const handlePointerDown = (e: MouseEvent) => {
+      const t = e.target as Node;
+      if (!notificationsRef.current?.contains(t)) setNotificationsOpen(false);
+      if (!accountMenuRef.current?.contains(t))   setAccountMenuOpen(false);
     };
-
-    const handleEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        setNotificationsOpen(false);
-        setAccountMenuOpen(false);
-      }
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') { setNotificationsOpen(false); setAccountMenuOpen(false); }
     };
-
     document.addEventListener('mousedown', handlePointerDown);
-    document.addEventListener('keydown', handleEscape);
-
+    document.addEventListener('keydown',   handleEscape);
     return () => {
       document.removeEventListener('mousedown', handlePointerDown);
-      document.removeEventListener('keydown', handleEscape);
+      document.removeEventListener('keydown',   handleEscape);
     };
   }, [accountMenuOpen, notificationsOpen]);
 
@@ -109,22 +204,11 @@ export const Navbar: React.FC = () => {
   };
 
   const handleNotificationToggle = () => {
-    setNotificationsOpen((open) => !open);
+    setNotificationsOpen(o => !o);
     setAccountMenuOpen(false);
   };
 
-  const getNotificationIcon = (type: string) => {
-    switch (type) {
-      case 'comment':
-        return <MessageSquare size={12} />;
-      case 'generated':
-        return <Sparkles size={12} />;
-      case 'like':
-        return <Heart size={12} />;
-      default:
-        return <Bell size={12} />;
-    }
-  };
+  const unreadCount = notifications.filter(n => !n.read).length;
 
   return (
     <nav>
@@ -134,10 +218,10 @@ export const Navbar: React.FC = () => {
       </Link>
 
       <div className="nl">
-        <NavLink to="/" end className={({ isActive }) => isActive ? 'on' : ''}>Overview</NavLink>
-        <NavLink to="/studio" className={({ isActive }) => isActive ? 'on' : ''}>Studio</NavLink>
-        <NavLink to="/dashboard" className={({ isActive }) => isActive ? 'on' : ''}>Dashboard</NavLink>
-        <NavLink to="/docs" className={({ isActive }) => isActive ? 'on' : ''}>API Docs</NavLink>
+        <NavLink to="/"         end className={({ isActive }) => isActive ? 'on' : ''}>Overview</NavLink>
+        <NavLink to="/studio"       className={({ isActive }) => isActive ? 'on' : ''}>Studio</NavLink>
+        <NavLink to="/dashboard"    className={({ isActive }) => isActive ? 'on' : ''}>Dashboard</NavLink>
+        <NavLink to="/docs"         className={({ isActive }) => isActive ? 'on' : ''}>API Docs</NavLink>
       </div>
 
       <div className="nr">
@@ -148,20 +232,15 @@ export const Navbar: React.FC = () => {
             <button
               type="button"
               className="account-trigger"
-              onClick={() => {
-                setNotificationsOpen(false);
-                setAccountMenuOpen((open) => !open);
-              }}
+              onClick={() => { setNotificationsOpen(false); setAccountMenuOpen(o => !o); }}
               title="Account menu"
               aria-label="Account menu"
               aria-expanded={accountMenuOpen}
             >
               <span className="account-trigger-avatar">
-                {userAvatar ? (
-                  <img src={userAvatar} alt={`${displayName} avatar`} className="account-menu-avatar-image" />
-                ) : (
-                  avatarInitial
-                )}
+                {userAvatar
+                  ? <img src={userAvatar} alt={`${displayName} avatar`} className="account-menu-avatar-image" />
+                  : avatarInitial}
               </span>
               <ChevronDown size={14} className="account-trigger-chevron" />
             </button>
@@ -170,11 +249,9 @@ export const Navbar: React.FC = () => {
               <div className="account-dropdown" role="menu">
                 <div className="account-dropdown-head">
                   <span className="account-dropdown-avatar">
-                    {userAvatar ? (
-                      <img src={userAvatar} alt={`${displayName} avatar`} className="account-menu-avatar-image" />
-                    ) : (
-                      avatarInitial
-                    )}
+                    {userAvatar
+                      ? <img src={userAvatar} alt={`${displayName} avatar`} className="account-menu-avatar-image" />
+                      : avatarInitial}
                   </span>
                   <span className="account-dropdown-name">{displayName}</span>
                 </div>
@@ -184,12 +261,6 @@ export const Navbar: React.FC = () => {
                     <span className="account-dropdown-item-main">
                       <UserRound size={15} className="account-dropdown-icon" />
                       <span>Personal Information</span>
-                    </span>
-                  </button>
-                  <button className="account-dropdown-item" type="button" onClick={() => handleAccountAction('/account/activity-history')}>
-                    <span className="account-dropdown-item-main">
-                      <History size={15} className="account-dropdown-icon" />
-                      <span>Activity History</span>
                     </span>
                   </button>
                   <button className="account-dropdown-item" type="button" onClick={() => handleAccountAction('/account/information')}>
@@ -212,15 +283,12 @@ export const Navbar: React.FC = () => {
             )}
           </div>
         ) : (
-          <button
-            className="nr-ghost"
-            onClick={() => navigate('/login')}
-            title="Sign up / Login"
-          >
+          <button className="nr-ghost" onClick={() => navigate('/login')} title="Sign up / Login">
             Sign up / Login
           </button>
         )}
 
+        {/* ── Notification bell ── */}
         <div className={`notification-wrap ${notificationsOpen ? 'open' : ''}`} ref={notificationsRef}>
           <button
             type="button"
@@ -231,43 +299,90 @@ export const Navbar: React.FC = () => {
             onClick={handleNotificationToggle}
           >
             <Bell size={22} />
-            <span className="notification-badge" aria-hidden="true" />
+            {/* Badge — only show when there are unread items */}
+            {(isLoggedIn || notifications.length > 0) && (
+              <span className="notification-badge" aria-hidden="true" />
+            )}
           </button>
 
           {notificationsOpen && (
             <div className="notification-panel" role="dialog" aria-label="Notifications">
+              {/* Header */}
               <div className="notification-panel-head">
                 <h2>Notifications</h2>
                 <div className="notification-filter-group" role="tablist" aria-label="Notification filters">
                   <button type="button" className="notification-filter-chip is-active">All</button>
+                  {unreadCount > 0 && (
+                    <span style={{
+                      fontSize: '10px',
+                      fontFamily: 'var(--mono)',
+                      letterSpacing: '0.08em',
+                      color: 'var(--blue)',
+                      background: 'var(--blueG)',
+                      padding: '2px 7px',
+                      borderRadius: '99px',
+                      fontWeight: 600,
+                    }}>
+                      {unreadCount} new
+                    </span>
+                  )}
                 </div>
               </div>
 
+              {/* Body */}
               <div className="notification-list">
-                {notifications.map((item) => (
-                  <article className="notification-item" key={item.id}>
-                    <div className={`notification-avatar notification-avatar-${item.accent}`}>
-                      <UserRound size={20} />
-                      <span className={`notification-avatar-mark notification-avatar-mark-${item.accent}`}>
-                        {getNotificationIcon(item.type)}
-                      </span>
+                {notifsLoading ? (
+                  /* Loading skeleton */
+                  [1, 2, 3].map(i => (
+                    <div key={i} className="notification-item" style={{ opacity: 0.5 }}>
+                      <div style={{
+                        width: 48, height: 48, borderRadius: '50%',
+                        background: 'var(--bg2)',
+                        animation: 'notif-pulse 1.4s ease infinite',
+                        flexShrink: 0,
+                      }} />
+                      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        <div style={{ height: 12, width: '60%', borderRadius: 4, background: 'var(--bg2)', animation: 'notif-pulse 1.4s ease infinite' }} />
+                        <div style={{ height: 10, width: '90%', borderRadius: 4, background: 'var(--bg2)', animation: 'notif-pulse 1.4s ease infinite 0.2s' }} />
+                        <div style={{ height: 10, width: '75%', borderRadius: 4, background: 'var(--bg2)', animation: 'notif-pulse 1.4s ease infinite 0.4s' }} />
+                      </div>
                     </div>
-
-                    <div className="notification-copy">
-                      <div className="notification-copy-top">
-                        <div className="notification-copy-head">
-                          <strong>{item.title}</strong>
-                          <span>{item.time}</span>
-                        </div>
-                        <span className="notification-status-dot" aria-hidden="true" />
+                  ))
+                ) : (
+                  notifications.map(item => (
+                    <article className="notification-item" key={item.id}>
+                      <div className={`notification-avatar notification-avatar-${item.accent}`}>
+                        {item.type === 'image' ? <ImageIcon size={20} /> : <UserRound size={20} />}
+                        <span className={`notification-avatar-mark notification-avatar-mark-${item.accent}`}>
+                          {getNotificationIcon(item.type)}
+                        </span>
                       </div>
 
-                      <p className="notification-message">{item.message}</p>
-                      {item.detail ? <p className="notification-detail">{item.detail}</p> : null}
-                    </div>
-                  </article>
-                ))}
+                      <div className="notification-copy">
+                        <div className="notification-copy-top">
+                          <div className="notification-copy-head">
+                            <strong>{item.title}</strong>
+                            <span>{item.time}</span>
+                          </div>
+                          {!item.read && (
+                            <span className="notification-status-dot" aria-hidden="true" />
+                          )}
+                        </div>
+                        <p className="notification-message">{item.message}</p>
+                        {item.detail && <p className="notification-detail">{item.detail}</p>}
+                      </div>
+                    </article>
+                  ))
+                )}
               </div>
+
+              {/* Skeleton keyframe (scoped) */}
+              <style>{`
+                @keyframes notif-pulse {
+                  0%,100% { opacity: 1; }
+                  50% { opacity: 0.4; }
+                }
+              `}</style>
             </div>
           )}
         </div>

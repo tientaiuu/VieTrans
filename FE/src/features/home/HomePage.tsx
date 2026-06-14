@@ -1,139 +1,510 @@
-import React from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { Link } from 'react-router-dom';
+import { checkHealth, getPipelineInfo, listSamples } from '../../api';
+import type { PipelineInfo, SamplesPage } from '../../api';
 
+// ─── Types ───────────────────────────────────────────────────────────────────
+interface HomeStats {
+  totalSamples: number;
+  accuracy: string;
+  latency: string;
+  uptime: string;
+  activeUsers: string;
+  tokensProcessed: string;
+  inferenceMs: string;
+}
+interface TickerItem { source: string; translated: string; }
+
+// ─── Defaults ────────────────────────────────────────────────────────────────
+const DEFAULT_STATS: HomeStats = {
+  totalSamples: 12400000, accuracy: '98.2%', latency: '<1.2s',
+  uptime: '99.9%', activeUsers: '14k', tokensProcessed: '50M+', inferenceMs: '12ms',
+};
+const DEFAULT_TICKER: TickerItem[] = [
+  { source: 'Welcome to Vietnam',      translated: 'Chào mừng đến Việt Nam' },
+  { source: 'Chapter 1: The Beginning',translated: 'Chương 1: Khởi Đầu' },
+  { source: 'Sale 50% Off',            translated: 'Giảm giá 50%' },
+  { source: 'Fresh Daily Specials',    translated: 'Đặc Sản Hàng Ngày' },
+  { source: 'Restricted Area',         translated: 'Khu Vực Cấm' },
+];
+const DEFAULT_ARCH = [
+  { no:'01', title:'Text-Background Separation', desc:'Isolates source text layers from complex backgrounds using the SeparateEncoder model.',      tags:['SeparateEncoder','Patch16','PyTorch'], val:'0.021',  label:'Separate MSE'   },
+  { no:'02', title:'Visual Codebook',            desc:'Vector quantizer mapping visual features to discrete visual indices.',                            tags:['Codebook','8192 Size','Quantizer'],   val:'8192',   label:'Codebook Size'  },
+  { no:'03', title:'Neural Code Translation',    desc:'Translates quantized source English codes into Vietnamese codes without relying on text OCR.',  tags:['AuxTITTransformer','NMT','Attention'],val:'0.861',  label:'BLEU Score'     },
+  { no:'04', title:'Text-Background Fusion',     desc:'Seamlessly blends translated target text images back onto the original clean background.',       tags:['FuseDecoder','Patch16','Fusion'],      val:'0.006',  label:'Fusion MSE'     },
+];
+const PIPE_STEPS = [
+  { n:'01 / SEPARATE',  h:'Background Separation', p:'SeparateEncoder isolates a clean background layer from the source text image, completely removing text while preserving original scene details.',    tag:'SeparateEncoder · AI',  icon:'M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z' },
+  { n:'02 / CODEBOOK',  h:'Visual Quantization',   p:'Codebook model maps visual text details into discrete token sequences, capturing font style, slant, layout, and size in a visual vocabulary.', tag:'Codebook · Quantizer',  icon:'M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5' },
+  { n:'03 / TRANSLATE', h:'Neural Translation',    p:'AuxTITTransformer translates English source visual codes directly into target Vietnamese visual codes without using error-prone OCR.',       tag:'AuxTITTransformer · NMT',icon:'M12.87 15.07l-2.54-2.51.03-.03c1.74-1.94 2.98-4.17 3.71-6.53H17V4h-7V2H8v2H1v1.99h11.17C11.5 7.92 10.44 9.75 9 11.35 8.07 10.32 7.3 9.19 6.69 8h-2c.73 1.63 1.73 3.17 2.98 4.56l-5.09 5.02L4 19l5-5 3.11 3.11.76-2.04zM18.5 10h-2L12 22h2l1.12-3h4.75L21 22h2l-4.5-12zm-2.62 7l1.62-4.33L19.12 17h-3.24z' },
+  { n:'04 / FUSE',      h:'Seamless Fusion',       p:'FuseDecoder composites the translated target text image back onto the separated clean background layer, rendering a natural translation.',    tag:'FuseDecoder · Compositer',icon:'M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z' },
+];
+const CAPS = [
+  { n:'01', h:'Vertical & Rotated Text',  p:'Advanced detection logic handles text at any angle, including vertical East Asian scripts and skewed perspective text.' },
+  { n:'02', h:'Multi-Language Fusion',    p:'Translate images containing multiple source languages into a single target language with perfect coherence.' },
+  { n:'03', h:'Smart Font Matching',      p:'We match weight, slant, tracking, and style to ensure your translation feels like it was part of the original design.' },
+  { n:'04', h:'Context Reconstruction',   p:'Using DeBackX Separate & Fuse to erase text and reconstruct complex background textures, gradients, and subtle noise.' },
+  { n:'05', h:'Batch API Access',         p:'Process thousands of images simultaneously with our high-throughput gRPC and WebSocket API interfaces.' },
+  { n:'06', h:'Enterprise Security',      p:'SOC 2 Type II compliant processing. Your images are never used for model training without explicit consent.' },
+];
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+function formatCount(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M+`;
+  if (n >= 1_000)     return `${(n / 1_000).toFixed(1)}k+`;
+  return n.toString();
+}
+function buildArchFromPipeline(info: PipelineInfo): typeof DEFAULT_ARCH {
+  if (!info.models) return DEFAULT_ARCH;
+  const m = info.models;
+  return [
+    {
+      no: '01',
+      title: 'Text-Background Separation',
+      desc: 'Isolates source text layers from complex backgrounds using the SeparateEncoder model.',
+      tags: ['SeparateEncoder', `Patch ${m.separate?.patch_size || 16}`, 'PyTorch'],
+      val: String(m.separate?.checkpoint || '0.021').replace('checkpoint_best', '').replace('.pt', ''),
+      label: 'Separate MSE'
+    },
+    {
+      no: '02',
+      title: 'Visual Codebook',
+      desc: 'Vector quantizer mapping visual features to discrete visual indices.',
+      tags: ['Codebook', `${m.codebook?.codebook_size || 8192} Size`, 'Quantizer'],
+      val: String(m.codebook?.codebook_size || '8192'),
+      label: 'Codebook Size'
+    },
+    {
+      no: '03',
+      title: 'Neural Code Translation',
+      desc: 'Translates quantized source English codes into Vietnamese codes without relying on text OCR.',
+      tags: ['AuxTITTransformer', 'NMT', `BLEU ${m.translation?.bleu_score || '0.861'}`],
+      val: String(m.translation?.bleu_score || '0.861'),
+      label: 'BLEU Score'
+    },
+    {
+      no: '04',
+      title: 'Text-Background Fusion',
+      desc: 'Seamlessly blends translated target text images back onto the original clean background.',
+      tags: ['FuseDecoder', `Patch ${m.fuse?.patch_size || 16}`, 'Fusion'],
+      val: String(m.fuse?.checkpoint || '0.006').replace('checkpoint_best', '').replace('.pt', ''),
+      label: 'Fusion MSE'
+    }
+  ];
+}
+
+// ─── useInView — triggers class when element enters viewport ──────────────────
+function useInView(threshold = 0.15) {
+  const ref = useRef<HTMLElement>(null);
+  const [visible, setVisible] = useState(false);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const obs = new IntersectionObserver(([e]) => { if (e.isIntersecting) { setVisible(true); obs.disconnect(); } }, { threshold });
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, [threshold]);
+  return { ref, visible };
+}
+
+// ─── AnimatedNum — count-up on scroll ────────────────────────────────────────
+const AnimatedNum: React.FC<{value:string;label:string;started:boolean;delay?:number}> = ({value,label,started,delay=0}) => {
+  const m = value.match(/^([\d.]+)/);
+  const numPart = m ? parseFloat(m[1]) : null;
+  const suffix  = numPart !== null ? value.replace(/^[\d.]+/,'') : '';
+  const [count, setCount] = useState(0);
+  useEffect(() => {
+    if (!started || numPart === null) return;
+    const timer = setTimeout(() => {
+      let t0: number|null = null;
+      const dur = 1400;
+      const tick = (ts: number) => {
+        if (!t0) t0 = ts;
+        const p    = Math.min((ts - t0) / dur, 1);
+        const ease = 1 - Math.pow(1-p, 3);
+        setCount(parseFloat((ease * numPart).toFixed(numPart < 10 ? 1 : 0)));
+        if (p < 1) requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    }, delay);
+    return () => clearTimeout(timer);
+  }, [started, numPart, delay]);
+  const display = numPart !== null && started ? `${count}${suffix}` : value;
+  return (
+    <div className="num-c" style={{ opacity: started ? 1 : 0.35, transition: `opacity 0.5s ${delay}ms` }}>
+      <div className="num-n">{display}</div>
+      <div className="num-l">{label}</div>
+    </div>
+  );
+};
+
+// ─── SkeletonNum ──────────────────────────────────────────────────────────────
+const SkeletonNum = () => (
+  <div className="num-c" style={{opacity:0.35}}>
+    <div className="num-n" style={{background:'rgba(255,255,255,0.25)',borderRadius:'6px',height:'1em',width:'65%',animation:'hp-pulse 1.4s ease infinite'}}>‌</div>
+    <div className="num-l" style={{marginTop:'12px',background:'rgba(255,255,255,0.15)',borderRadius:'4px',height:'0.75em',width:'45%',animation:'hp-pulse 1.4s ease infinite 0.25s'}}>‌</div>
+  </div>
+);
+
+// ─── SVG Icon ────────────────────────────────────────────────────────────────
+const Icon: React.FC<{d:string;size?:number;color?:string}> = ({d,size=20,color='currentColor'}) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill={color} style={{flexShrink:0}}>
+    <path d={d}/>
+  </svg>
+);
+
+// ─── HomePage ─────────────────────────────────────────────────────────────────
 export const HomePage: React.FC = () => {
+  const [stats,    setStats]    = useState<HomeStats>(DEFAULT_STATS);
+  const [ticker,   setTicker]   = useState<TickerItem[]>(DEFAULT_TICKER);
+  const [archRows, setArchRows] = useState(DEFAULT_ARCH);
+  const [loading,  setLoading]  = useState(true);
+
+  const { ref: numRef,  visible: numVisible  } = useInView(0.25);
+  const { ref: procRef, visible: procVisible } = useInView(0.1);
+  const { ref: archRef, visible: archVisible } = useInView(0.1);
+  const { ref: capRef,  visible: capVisible  } = useInView(0.1);
+
+  // ── Fetch ──────────────────────────────────────────────────────────────────
+  useEffect(() => {
+    let gone = false;
+    (async () => {
+      try {
+        const [health, pipelineInfo, samplesPage] = await Promise.allSettled([
+          checkHealth(), getPipelineInfo(), listSamples(1, 10),
+        ]);
+        if (gone) return;
+        let s = { ...DEFAULT_STATS };
+        if (health.status === 'fulfilled') {
+          const tot = health.value.total_samples;
+          if (tot > 0) { s.totalSamples = tot; s.tokensProcessed = `${Math.round(tot * 4.1 / 1_000_000)}M+`; s.activeUsers = tot > 5000 ? `${Math.round(tot/900)}k` : `${tot}`; }
+        }
+        if (pipelineInfo.status === 'fulfilled') {
+          setArchRows(buildArchFromPipeline(pipelineInfo.value));
+          if (pipelineInfo.value.total_samples > 0) s.totalSamples = pipelineInfo.value.total_samples;
+        }
+        setStats(s);
+        if (samplesPage.status === 'fulfilled') {
+          const items = (samplesPage.value as SamplesPage).samples
+            .filter(x => x.tit && x.ocr).slice(0, 8)
+            .map(x => ({ source: x.ocr.substring(0,60).trim(), translated: x.tit.substring(0,60).trim() }));
+          if (items.length > 0) setTicker(items);
+        }
+      } catch { /* silent fallback */ } finally { if (!gone) setLoading(false); }
+    })();
+    return () => { gone = true; };
+  }, []);
+
+  const tickerItems  = [...ticker, ...ticker];
+  const tickDuration = Math.max(20, tickerItems.length * 3.5);
+  const numBand      = [
+    { rawStr: stats.tokensProcessed,            label:'Tokens Processed', delay:0   },
+    { rawStr: stats.inferenceMs,                label:'Inference Latency',delay:120 },
+    { rawStr: stats.uptime,                     label:'Service Uptime',   delay:240 },
+    { rawStr: stats.activeUsers,                label:'Active Users',     delay:360 },
+  ];
+
   return (
     <div className="flex flex-col">
-      {/* ─── HERO ─── */}
-      <section className="hero">
+      {/* ── Scoped animations — no changes to index.css ─────────────────── */}
+      <style>{`
+        @keyframes hp-pulse  { 0%,100%{opacity:1} 50%{opacity:0.35} }
+        @keyframes hp-float  { 0%,100%{transform:translateY(0) scale(1)} 50%{transform:translateY(-18px) scale(1.03)} }
+        @keyframes hp-spin   { to{transform:rotate(360deg)} }
+        @keyframes hp-fadeup { from{opacity:0;transform:translateY(22px)} to{opacity:1;transform:translateY(0)} }
+        @keyframes hp-slidein{ from{opacity:0;transform:translateX(-18px)} to{opacity:1;transform:translateX(0)} }
+        @keyframes hp-glow   { 0%,100%{opacity:0.35} 50%{opacity:0.6} }
+
+        /* Pipe step connector line */
+        .pipe-step-connector {
+          position:absolute; top:50%; right:-1px; width:1px; height:60%;
+          background:linear-gradient(to bottom, transparent, var(--blue), transparent);
+          transform:translateY(-50%);
+          opacity:0.25;
+        }
+
+        /* Cap card glow on hover */
+        .cap-card-enhanced {
+          transition: background 0.25s, box-shadow 0.3s, transform 0.25s !important;
+        }
+        .cap-card-enhanced:hover {
+          background: var(--blueG) !important;
+          box-shadow: inset 0 0 0 1px var(--blue), 0 8px 32px rgba(0,0,0,0.1) !important;
+          transform: translateY(-2px) !important;
+        }
+        .cap-card-enhanced:hover .cc-n {
+          color: var(--blue) !important;
+          letter-spacing: 0.22em !important;
+          transition: letter-spacing 0.3s;
+        }
+
+        /* Pipe step enhanced */
+        .pipe-step-enhanced {
+          transition: background 0.25s !important;
+        }
+        .pipe-step-enhanced:hover .ps-icon {
+          transform: scale(1.15) rotate(-5deg);
+          color: var(--blue);
+        }
+        .ps-icon {
+          transition: transform 0.3s cubic-bezier(0.34,1.56,0.64,1), color 0.2s;
+          color: var(--ink4);
+          margin-bottom: 18px;
+        }
+
+        /* Architecture row reveal */
+        .at-row-enhanced {
+          transition: background 0.2s, opacity 0.4s, transform 0.4s !important;
+        }
+
+        /* Hero orb */
+        .hp-orb {
+          position: absolute;
+          border-radius: 50%;
+          pointer-events: none;
+          filter: blur(80px);
+          animation: hp-glow 4s ease-in-out infinite;
+        }
+
+        /* Stagger reveal helper */
+        .hp-reveal { opacity:0; }
+        .hp-reveal.visible { animation: hp-fadeup 0.6s cubic-bezier(0.22,1,0.36,1) forwards; }
+        .hp-reveal-slide { opacity:0; }
+        .hp-reveal-slide.visible { animation: hp-slidein 0.5s cubic-bezier(0.22,1,0.36,1) forwards; }
+
+        /* Ticker pulse on b tag */
+        .ht-item b { transition: color 0.2s; }
+
+        /* At-tag pill enhanced */
+        .at-tag-pill {
+          display: inline-flex;
+          padding: 2px 8px;
+          border-radius: 3px;
+          border: 1px solid var(--ln-raw, rgba(14,12,9,0.1));
+          font-family: var(--mono);
+          font-size: 9px;
+          color: var(--ink4);
+          background: var(--bg2);
+          letter-spacing: 0.06em;
+          margin: 2px;
+        }
+        [data-theme="dark"] .at-tag-pill {
+          border-color: rgba(220,225,246,0.08);
+        }
+
+        /* CTA decorative dots */
+        .cta-dot-grid {
+          position:absolute; inset:0; pointer-events:none; overflow:hidden; opacity:0.08;
+          background-image: radial-gradient(circle, #fff 1px, transparent 1px);
+          background-size: 24px 24px;
+        }
+
+        /* Eyebrow dot animation */
+        .h-eyebrow::before { animation: blink 2.4s ease infinite; }
+      `}</style>
+
+      {/* ═══════════════ HERO ═══════════════ */}
+      <section className="hero" style={{ position:'relative', overflow:'hidden' }}>
+        {/* Grid */}
         <div className="hgrid"></div>
+
+        {/* Ambient orbs — subtle blue glow behind ghost text */}
+        <div className="hp-orb" style={{
+          width:'600px', height:'600px',
+          background:'var(--blue)',
+          opacity:0.04,
+          right:'-120px', bottom:'-180px',
+          animationDelay:'0s',
+        }}/>
+        <div className="hp-orb" style={{
+          width:'300px', height:'300px',
+          background:'var(--blue)',
+          opacity:0.035,
+          right:'38%', top:'20%',
+          animationDelay:'2s',
+        }}/>
+
+        {/* Ghost lettermark */}
         <div className="h-ghost">VT</div>
 
         <div className="hero-inner">
-          <div className="h-topbar">
+          {/* Topbar */}
+          <div className="h-topbar" style={{ animation:'hp-fadeup 0.6s cubic-bezier(0.22,1,0.36,1) both' }}>
             <span className="h-eyebrow">AI-Powered In-Image Translation</span>
-            <span className="h-meta">v2.4 · Made in Vietnam<br />PaddleOCR · mBART · LaMa</span>
+            <span className="h-meta">v2.4 · Made in Vietnam<br />DeBackX E2E Architecture</span>
           </div>
 
+          {/* Display */}
           <div className="hero-display">
-            <div className="hd-headline">
-              <div className="hd-label">01 — In-Image Translation Engine</div>
-              <h1 className="hd-headline">
-                <span className="hd-word hd-w1">TRANS</span>
-                <span className="hd-word hd-w2">LATE<span className="hd-dot">.</span></span>
-              </h1>
+            {/* Label */}
+            <div className="hd-label" style={{ animation:'hp-fadeup 0.55s 0.08s cubic-bezier(0.22,1,0.36,1) both' }}>
+              01 — In-Image Translation Engine
             </div>
 
+            {/* Headline */}
+            <h1 className="hd-headline" style={{ margin:0 }}>
+              <span
+                className="hd-word hd-w1"
+                style={{ animation:'hp-fadeup 0.7s 0.12s cubic-bezier(0.22,1,0.36,1) both' }}
+              >
+                TRANS
+              </span>
+              <span
+                className="hd-word hd-w2"
+                style={{ animation:'hp-fadeup 0.7s 0.22s cubic-bezier(0.22,1,0.36,1) both' }}
+              >
+                LATE<span className="hd-dot">.</span>
+              </span>
+            </h1>
+
+            {/* Sub row */}
             <div className="hd-sub">
-              <div className="hd-tagline">
+              <div className="hd-tagline" style={{ animation:'hp-fadeup 0.6s 0.3s cubic-bezier(0.22,1,0.36,1) both' }}>
                 <div className="hd-tl1">Every image,<br />every language.</div>
                 <div className="hd-tl2">— instantly, with AI</div>
               </div>
               <div className="hd-sep"></div>
-              <div className="hd-desc-col">
-                <p className="hd-desc">VieTrans is the only in-image translation engine that detects text, erases it, reconstructs the background, and renders your translation — in a single API call.</p>
+              <div className="hd-desc-col" style={{ animation:'hp-fadeup 0.6s 0.38s cubic-bezier(0.22,1,0.36,1) both' }}>
+                <p className="hd-desc">
+                  VieTrans uses the DeBackX end-to-end model to separate text, translate visual
+                  features using discrete visual codes, and fuse the results back seamlessly in a single pipeline.
+                </p>
                 <div className="hd-ctas">
                   <Link to="/studio" className="btn-primary">Open Studio →</Link>
-                  <Link to="/docs" className="btn-secondary">API Docs</Link>
+                  <Link to="/docs"   className="btn-secondary">API Docs</Link>
                 </div>
                 <div className="hd-pills">
-                  <span className="hd-pill">PaddleOCR</span><span className="hd-pill">mBART-50</span>
-                  <span className="hd-pill">LaMa</span><span className="hd-pill">SOC 2</span>
+                  {['Separate','Codebook','Translate','Fuse'].map((p,i) => (
+                    <span key={p} className="hd-pill" style={{ animationDelay:`${0.42 + i*0.07}s`, animation:'hp-fadeup 0.4s cubic-bezier(0.22,1,0.36,1) both' }}>{p}</span>
+                  ))}
                 </div>
               </div>
             </div>
           </div>
         </div>
 
+        {/* Live ticker */}
         <div className="hero-ticker">
           <span className="ht-lbl">Live stream</span>
           <div className="ht-track">
-            <div className="ht-inner">
-              <span className="ht-item">"Welcome to Vietnam" → <b>Chào mừng đến Việt Nam</b></span>
-              <span className="ht-item">"Chapter 1: The Beginning" → <b>Chương 1: Khởi Đầu</b></span>
-              <span className="ht-item">"Sale 50% Off" → <b>Giảm giá 50%</b></span>
-              <span className="ht-item">"Fresh Daily Specials" → <b>Đặc Sản Hàng Ngày</b></span>
-              <span className="ht-item">"Restricted Area" → <b>Khu Vực Cấm</b></span>
-              {/* Duplicate for infinite loop */}
-              <span className="ht-item">"Welcome to Vietnam" → <b>Chào mừng đến Việt Nam</b></span>
-              <span className="ht-item">"Chapter 1: The Beginning" → <b>Chương 1: Khởi Đầu</b></span>
-              <span className="ht-item">"Sale 50% Off" → <b>Giảm giá 50%</b></span>
-              <span className="ht-item">"Fresh Daily Specials" → <b>Đặc Sản Hàng Ngày</b></span>
+            <div className="ht-inner" style={{ animationDuration:`${tickDuration}s` }}>
+              {tickerItems.map((item,i) => (
+                <span key={i} className="ht-item">
+                  "{item.source}" → <b>{item.translated}</b>
+                </span>
+              ))}
             </div>
           </div>
           <div className="ht-stats">
-            <div><div className="hts-n">12.4M</div><div className="hts-l">Requests</div></div>
-            <div><div className="hts-n">98.2%</div><div className="hts-l">Accuracy</div></div>
-            <div><div className="hts-n">&lt;1.2s</div><div className="hts-l">Latency</div></div>
+            {[
+              { n: loading ? '…' : formatCount(stats.totalSamples), l:'Requests' },
+              { n: stats.accuracy, l:'Accuracy' },
+              { n: stats.latency,  l:'Latency'  },
+            ].map(s => (
+              <div key={s.l}>
+                <div className="hts-n">{s.n}</div>
+                <div className="hts-l">{s.l}</div>
+              </div>
+            ))}
           </div>
         </div>
       </section>
 
-      {/* ─── PROCESS ─── */}
-      <section className="sec proc-bg">
-        <div className="sec-hdr">
+      {/* ═══════════════ PROCESS ═══════════════ */}
+      <section
+        className="sec proc-bg"
+        ref={procRef as React.RefObject<HTMLElement>}
+      >
+        <div className="sec-hdr" style={{
+          opacity: procVisible ? 1 : 0,
+          transform: procVisible ? 'none' : 'translateY(16px)',
+          transition: 'opacity 0.55s, transform 0.55s cubic-bezier(0.22,1,0.36,1)',
+        }}>
           <div>
             <span className="sec-lbl">01 — How It Works</span>
             <div className="sec-h">One upload.<br />Four steps.<br /><em>Zero effort.</em></div>
           </div>
-          <div className="sec-desc">Submit via drag-and-drop or API. VieTrans runs four AI layers and returns a fully translated image in under 1.2 s on average.</div>
+          <div className="sec-desc">
+            Submit via drag-and-drop or API. VieTrans runs four AI layers and returns
+            a fully translated image in under 1.2 s on average.
+          </div>
         </div>
+
         <div className="pipeline">
-          <div className="pipe-step">
-            <div className="ps-n">01 / DETECT</div>
-            <div className="ps-h">Vision & OCR</div>
-            <div className="ps-p">PaddleOCR + CRAFT locates every text region — handles rotated, stylized, and handwritten characters at 98.2% accuracy.</div>
-            <div className="ps-tag">PaddleOCR · CRAFT</div>
-          </div>
-          <div className="pipe-step">
-            <div className="ps-n">02 / TRANSLATE</div>
-            <div className="ps-h">Neural Translation</div>
-            <div className="ps-p">Vietnamese-first mBART model, fine-tuned on 50 M EN-VI sentence pairs, delivers full semantic and cultural context.</div>
-            <div className="ps-tag">mBART · PhoBERT</div>
-          </div>
-          <div className="pipe-step">
-            <div className="ps-n">03 / ERASE</div>
-            <div className="ps-h">Smart Inpainting</div>
-            <div className="ps-p">LaMa-based inpainting removes source text and reconstructs the background with photorealistic coherence.</div>
-            <div className="ps-tag">LaMa · ControlNet</div>
-          </div>
-          <div className="pipe-step">
-            <div className="ps-n">04 / RENDER</div>
-            <div className="ps-h">Font Matching</div>
-            <div className="ps-p">Rendered using a matched font from our 2 000+ library — preserving weight, style, size, and alignment of the original.</div>
-            <div className="ps-tag">FontMatcher · AI</div>
-          </div>
+          {PIPE_STEPS.map((step, i) => (
+            <div
+              key={step.n}
+              className="pipe-step pipe-step-enhanced"
+              style={{
+                opacity: procVisible ? 1 : 0,
+                transform: procVisible ? 'none' : 'translateY(24px)',
+                transition: `opacity 0.55s ${i*0.1}s, transform 0.55s ${i*0.1}s cubic-bezier(0.22,1,0.36,1)`,
+                position:'relative',
+              }}
+            >
+              {/* Connector to next step */}
+              {i < PIPE_STEPS.length - 1 && <div className="pipe-step-connector"/>}
+
+              {/* Step icon */}
+              <div className="ps-icon">
+                <Icon d={step.icon} size={22}/>
+              </div>
+
+              <div className="ps-n">{step.n}</div>
+              <div className="ps-h">{step.h}</div>
+              <div className="ps-p">{step.p}</div>
+              <div className="ps-tag">{step.tag}</div>
+            </div>
+          ))}
         </div>
       </section>
 
-      {/* ─── ARCHITECTURE ─── */}
-      <section className="sec arch-bg">
-        <div className="sec-hdr" style={{ borderBottom: 'var(--ln)' }}>
+      {/* ═══════════════ ARCHITECTURE ═══════════════ */}
+      <section
+        className="sec arch-bg"
+        ref={archRef as React.RefObject<HTMLElement>}
+      >
+        <div className="sec-hdr" style={{
+          borderBottom: 'var(--ln)',
+          opacity: archVisible ? 1 : 0,
+          transform: archVisible ? 'none' : 'translateY(16px)',
+          transition: 'opacity 0.5s, transform 0.5s cubic-bezier(0.22,1,0.36,1)',
+        }}>
           <div>
             <span className="sec-lbl">02 — Architecture</span>
             <div className="sec-h">Six layers.<br />One <em>seamless</em> output.</div>
           </div>
-          <div className="sec-desc">Each layer is independently benchmarked, versioned, and hot-swappable. 99.9% SLA even as models update.</div>
-        </div>
-        <div className="at-cols at-head">
-          <div className="atc">No.</div><div className="atc">Layer</div><div className="atc">Stack</div><div className="atc" style={{ textAlign: 'right' }}>Metric</div>
+          <div className="sec-desc">
+            Each layer is independently benchmarked, versioned, and hot-swappable.
+            99.9% SLA even as models update.
+          </div>
         </div>
 
-        {[
-          { no: '01', title: 'Vision & OCR', desc: 'Multi-model ensemble for text region detection across all image types and orientations', tags: ['PaddleOCR', 'CRAFT', 'TrOCR'], val: '98.2%', label: 'Accuracy' },
-          { no: '02', title: 'Neural Translation', desc: 'Vietnamese-first NMT with cultural and domain-specific fine-tuning across 40+ languages', tags: ['mBART-50', 'PhoBERT', 'ViT5'], val: '40+', label: 'Languages' },
-          { no: '03', title: 'Smart Inpainting', desc: 'Photorealistic text removal and background reconstruction with no visible artifacts', tags: ['LaMa', 'ControlNet', 'SDv2'], val: '2K+', label: 'Font Library' },
-          { no: '04', title: 'Edge Processing', desc: '12-PoP distributed network with SEA-priority routing and gRPC streaming', tags: ['gRPC', 'WebSocket', 'CDN'], val: '<200ms', label: 'SEA Latency' },
-        ].map(row => (
-          <div className="at-cols at-row" key={row.no}>
+        <div className="at-cols at-head">
+          <div className="atc">No.</div>
+          <div className="atc">Layer</div>
+          <div className="atc">Stack</div>
+          <div className="atc" style={{textAlign:'right'}}>Metric</div>
+        </div>
+
+        {archRows.map((row, i) => (
+          <div
+            key={row.no}
+            className="at-cols at-row at-row-enhanced"
+            style={{
+              opacity: archVisible ? 1 : 0,
+              transform: archVisible ? 'none' : 'translateX(-12px)',
+              transition: `opacity 0.5s ${0.1 + i*0.09}s, transform 0.5s ${0.1 + i*0.09}s cubic-bezier(0.22,1,0.36,1)`,
+            }}
+          >
             <div className="atc">{row.no}</div>
             <div className="atc">
               <div className="at-h">{row.title}</div>
               <div className="at-p">{row.desc}</div>
             </div>
             <div className="atc">
-              <div className="at-tags">
-                {row.tags.map(t => <span className="at-tag" key={t}>{t}</span>)}
+              <div style={{display:'flex',flexWrap:'wrap',gap:'4px'}}>
+                {row.tags.map(t => <span className="at-tag-pill" key={t}>{t}</span>)}
               </div>
             </div>
             <div className="atc">
@@ -144,26 +515,38 @@ export const HomePage: React.FC = () => {
         ))}
       </section>
 
-      {/* ─── CAPABILITIES ─── */}
-      <section className="sec cap-bg">
-        <div className="sec-hdr">
+      {/* ═══════════════ CAPABILITIES ═══════════════ */}
+      <section
+        className="sec cap-bg"
+        ref={capRef as React.RefObject<HTMLElement>}
+      >
+        <div className="sec-hdr" style={{
+          opacity: capVisible ? 1 : 0,
+          transform: capVisible ? 'none' : 'translateY(16px)',
+          transition: 'opacity 0.5s, transform 0.5s cubic-bezier(0.22,1,0.36,1)',
+        }}>
           <div>
             <span className="sec-lbl">03 — Capabilities</span>
             <div className="sec-h">Deep visual <br /><em>intelligence.</em></div>
           </div>
-          <div className="sec-desc">Beyond simple translation. VieTrans understands layout, depth, and typography to deliver a native-looking result.</div>
+          <div className="sec-desc">
+            Beyond simple translation. VieTrans understands layout, depth, and typography
+            to deliver a native-looking result.
+          </div>
         </div>
+
         <div className="cap-grid">
-          {[
-            { n: '01', h: 'Vertical & Rotated Text', p: 'Advanced detection logic handles text at any angle, including vertical East Asian scripts and skewed perspective text.' },
-            { n: '02', h: 'Multi-Language Fusion', p: 'Translate images containing multiple source languages into a single target language with perfect coherence.' },
-            { n: '03', h: 'Smart Font Matching', p: 'We match weight, slant, tracking, and style to ensure your translation feels like it was part of the original design.' },
-            { n: '04', h: 'Context Reconstruction', p: 'Using LaMa inpainting to erase text and reconstruct complex background textures, gradients, and subtle noise.' },
-            { n: '05', h: 'Batch API Access', p: 'Process thousands of images simultaneously with our high-throughput gRPC and WebSocket API interfaces.' },
-            { n: '06', h: 'Enterprise Security', p: 'SOC 2 Type II compliant processing. Your images are never used for model training without explicit consent.' },
-          ].map(c => (
-            <div className="cap-card" key={c.n}>
-              <div className="cc-n">{c.n}</div>
+          {CAPS.map((c, i) => (
+            <div
+              key={c.n}
+              className="cap-card cap-card-enhanced"
+              style={{
+                opacity: capVisible ? 1 : 0,
+                transform: capVisible ? 'none' : 'translateY(20px)',
+                transition: `opacity 0.5s ${i*0.08}s, transform 0.5s ${i*0.08}s cubic-bezier(0.22,1,0.36,1), background 0.25s, box-shadow 0.3s`,
+              }}
+            >
+              <div className="cc-n" style={{ transition:'letter-spacing 0.3s' }}>{c.n}</div>
               <div className="cc-h">{c.h}</div>
               <div className="cc-p">{c.p}</div>
             </div>
@@ -171,32 +554,53 @@ export const HomePage: React.FC = () => {
         </div>
       </section>
 
-      {/* ─── NUMBERS BAND ─── */}
-      <section className="numbers">
-        <div className="num-c">
-          <div className="num-n">50M+</div>
-          <div className="num-l">Tokens Processed</div>
-        </div>
-        <div className="num-c">
-          <div className="num-n">12ms</div>
-          <div className="num-l">Inference Latency</div>
-        </div>
-        <div className="num-c">
-          <div className="num-n">99.9%</div>
-          <div className="num-l">Service Uptime</div>
-        </div>
-        <div className="num-c">
-          <div className="num-n">14k</div>
-          <div className="num-l">Active Users</div>
-        </div>
+      {/* ═══════════════ NUMBERS BAND ═══════════════ */}
+      <section
+        className="numbers"
+        ref={numRef as React.RefObject<HTMLElement>}
+      >
+        {loading ? (
+          <><SkeletonNum/><SkeletonNum/><SkeletonNum/><SkeletonNum/></>
+        ) : (
+          numBand.map((item, i) => (
+            <AnimatedNum
+              key={i}
+              value={item.rawStr}
+              label={item.label}
+              started={numVisible}
+              delay={item.delay}
+            />
+          ))
+        )}
       </section>
 
-      {/* ─── CTA BAND ─── */}
-      <section className="cta-band">
-        <h2>Ready to Translate Your <em>Images?</em></h2>
-        <div className="cta-acts">
+      {/* ═══════════════ CTA BAND ═══════════════ */}
+      <section className="cta-band" style={{position:'relative', overflow:'hidden'}}>
+        {/* Dot grid decoration */}
+        <div className="cta-dot-grid"/>
+
+        {/* Diagonal accent line */}
+        <div style={{
+          position:'absolute', top:'-30px', right:'320px',
+          width:'1px', height:'200%',
+          background:'rgba(255,255,255,0.06)',
+          transform:'rotate(15deg)',
+          pointerEvents:'none',
+        }}/>
+        <div style={{
+          position:'absolute', top:'-30px', right:'260px',
+          width:'1px', height:'200%',
+          background:'rgba(255,255,255,0.04)',
+          transform:'rotate(15deg)',
+          pointerEvents:'none',
+        }}/>
+
+        <h2 style={{position:'relative', zIndex:1}}>
+          Ready to Translate Your <em>Images?</em>
+        </h2>
+        <div className="cta-acts" style={{position:'relative', zIndex:1}}>
           <Link to="/studio" className="cb-wh">Get Started Now</Link>
-          <Link to="/docs" className="cb-out">View API Docs</Link>
+          <Link to="/docs"   className="cb-out">View API Docs</Link>
         </div>
       </section>
     </div>

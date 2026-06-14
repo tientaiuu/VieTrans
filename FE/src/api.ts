@@ -1,5 +1,5 @@
 /**
- * DebackX API Client
+ * DeBackX API Client
  * Communicates with the FastAPI backend at localhost:8000
  */
 

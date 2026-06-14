@@ -563,7 +563,7 @@ export const DashboardPage: React.FC = () => {
                     <div className="dashboard-activity-thumb">
                       <img
                         src={imageUrl(item.stages.input)}
-                        className="w-full h-full object-cover opacity-80"
+                        className="w-full h-full object-contain"
                         alt="Original"
                       />
                       <span className="dashboard-activity-label">Original</span>
