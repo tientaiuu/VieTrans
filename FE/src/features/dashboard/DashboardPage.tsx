@@ -545,6 +545,7 @@ export const DashboardPage: React.FC = () => {
                 hour: '2-digit',
                 minute: '2-digit',
               });
+              const translatedUrl = imageUrl(item.stages.result || item.stages.fuse || item.stages.input);
 
               return (
                 <article className="activity-card dashboard-activity-card" key={item.id}>
@@ -571,7 +572,7 @@ export const DashboardPage: React.FC = () => {
 
                     <div className="dashboard-activity-thumb is-translated">
                       <img
-                        src={imageUrl(item.stages.fuse)}
+                        src={translatedUrl}
                         className="w-full h-full object-contain dashboard-translated-image"
                         alt="Translated"
                       />
@@ -583,7 +584,7 @@ export const DashboardPage: React.FC = () => {
                     <button
                       type="button"
                       className="activity-primary-action"
-                      onClick={() => setViewImageUrl(imageUrl(item.stages.fuse))}
+                      onClick={() => setViewImageUrl(translatedUrl)}
                     >
                       <Eye size={16} />
                       <span>View Image</span>
@@ -593,7 +594,7 @@ export const DashboardPage: React.FC = () => {
                       <button
                         type="button"
                         className="activity-secondary-action"
-                        onClick={() => handleDownload(imageUrl(item.stages.fuse), `vietrans-${item.id}.jpg`)}
+                        onClick={() => handleDownload(translatedUrl, `vietrans-${item.id}.jpg`)}
                       >
                         <Download size={16} />
                         <span>Download</span>

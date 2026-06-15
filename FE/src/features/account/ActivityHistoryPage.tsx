@@ -97,6 +97,7 @@ export const ActivityHistoryPage: React.FC = () => {
                 ) : histories.map((item) => {
                   const date = new Date(item.created_at);
                   const formattedDate = date.toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+                  const translatedUrl = imageUrl(item.stages.result || item.stages.fuse || item.stages.input);
 
                   return (
                     <article className="activity-card" key={item.id}>
@@ -117,19 +118,19 @@ export const ActivityHistoryPage: React.FC = () => {
                           <span className="absolute bottom-2 left-2 px-2 py-1 bg-black/70 text-white text-xs rounded">Original</span>
                         </div>
                         <div className="flex-1 rounded-lg overflow-hidden bg-black/20 flex flex-col relative border border-[#0A84FF]/20">
-                          <img src={imageUrl(item.stages.fuse)} className="w-full h-full object-cover" alt="Translated" />
+                          <img src={translatedUrl} className="w-full h-full object-cover" alt="Translated" />
                           <span className="absolute bottom-2 left-2 px-2 py-1 bg-[#0A84FF] text-white text-xs rounded font-medium">Translated</span>
                         </div>
                       </div>
 
                       <div className="activity-card-actions">
-                        <button type="button" className="activity-primary-action" onClick={() => window.open(imageUrl(item.stages.fuse), '_blank')}>
+                        <button type="button" className="activity-primary-action" onClick={() => window.open(translatedUrl, '_blank')}>
                           <Eye size={16} />
                           <span>View Image</span>
                         </button>
 
                         <div className="activity-secondary-actions">
-                          <button type="button" className="activity-secondary-action" onClick={() => handleDownload(imageUrl(item.stages.fuse), `vietrans-${item.id}.jpg`)}>
+                          <button type="button" className="activity-secondary-action" onClick={() => handleDownload(translatedUrl, `vietrans-${item.id}.jpg`)}>
                             <Download size={16} />
                             <span>Download</span>
                           </button>

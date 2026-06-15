@@ -1,21 +1,15 @@
-# VieTrans API Server & Inference Pipeline
+# VieTrans API Gateway for the DebackX worker
 fastapi>=0.115.0
 uvicorn[standard]>=0.30.0
-Pillow>=10.0.0
 python-multipart>=0.0.9
-torch>=2.0.0
-torchvision>=0.15.0
-sentencepiece>=0.1.99
-huggingface_hub>=0.22.0
-timm>=0.9.0
-vector_quantize_pytorch>=1.14.0
-einops>=0.7.0
+httpx>=0.27.0
+Pillow>=10.0.0
 
-# Auth dependencies
+# Auth/history
 motor>=3.3.0
 dnspython>=2.4.0
 bcrypt>=4.0.0
-passlib[bcrypt]>=1.7.4
 python-jose[cryptography]>=3.3.0
 pydantic[email]>=2.0.0
 fastapi-mail>=1.4.0
+python-dotenv>=1.0.0

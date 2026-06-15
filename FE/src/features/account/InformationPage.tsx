@@ -17,31 +17,31 @@ const technologyItems = [
   },
   {
     icon: Boxes,
-    title: 'Backend and inference stack',
-    description: 'The repository also includes a Python-based model server with Torch, torchvision, and SentencePiece-backed inference components for the translation pipeline.',
+    title: 'Backend gateway',
+    description: 'The FastAPI backend stays lightweight: it accepts uploads, calls the DebackX worker over HTTP, proxies result files, and stores user history.',
   },
 ];
 
 const modelItems = [
   {
     icon: Layers3,
-    title: '01 / Text-Background Separation',
-    description: 'The separation stage isolates a clean background image from the source text image using the SeparateEncoder model, preserving original background context.',
+    title: '01 / OCR Detection',
+    description: 'DebackX uses PaddleOCR PP-OCRv5 to detect text regions and recognize English text from the uploaded image.',
   },
   {
     icon: Boxes,
-    title: '02 / Visual Feature Quantization',
-    description: 'The quantization stage utilizes a discrete Codebook to represent image features of the text as indices, bridging visual and textual representations.',
+    title: '02 / Neural Translation',
+    description: 'A fine-tuned NLLB 1.3B model translates recognized English text into Vietnamese for each detected region.',
   },
   {
     icon: Cpu,
-    title: '03 / Neural Code Translation',
-    description: 'The translation stage uses the AuxTITTransformer model to translate quantized source codes directly into target codes, bypassing standard OCR completely.',
+    title: '03 / Mask and Cleanup',
+    description: 'The worker generates a text mask and prepares the source image so translated Vietnamese text can be rendered cleanly.',
   },
   {
     icon: Bot,
-    title: '04 / Text-Background Fusion',
-    description: 'The fusion stage composites the reconstructed target text image back onto the clean background layer using the FuseDecoder to produce the final seamlessly translated output.',
+    title: '04 / Adaptive Rendering',
+    description: 'Vietnamese text is drawn back into the image with adaptive sizing, stroke, color handling, and merged subtitle groups.',
   },
 ];
 

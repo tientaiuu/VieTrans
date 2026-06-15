@@ -1,36 +1,36 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://github.com/vercel/next.js/tree/canary/packages/create-next-app).
+# VieTrans Frontend
 
-## Getting Started
+React + Vite frontend for the VieTrans web application.
 
-First, run the development server:
+## Run Locally
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Set the backend URL when needed:
 
-You can start editing the page by modifying `app/page.js`. The page auto-updates as you edit the file.
+```env
+VITE_API_URL=http://localhost:8000
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Main Screens
 
-## Learn More
+- Studio: upload one or more images and send them to the backend gateway.
+- Editor: review the translated image and make light client-side edits.
+- Dashboard: view authenticated translation history.
+- Docs: show the real FastAPI gateway endpoints used by the app.
 
-To learn more about Next.js, take a look at the following resources:
+The frontend does not run OCR in the browser. OCR, translation, mask generation, and rendering are delegated to the DebackX worker through the backend.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Run With Docker Compose
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+From the repository root:
 
-## Deploy on Vercel
+```bash
+cp .env.docker.example .env
+docker compose up --build
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Open `http://localhost:5173`. The UI can be previewed before the DebackX worker is running; upload requests will only work after the worker is available.

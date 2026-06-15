@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import { checkHealth, getPipelineInfo, listSamples } from '../../api';
-import type { PipelineInfo, SamplesPage } from '../../api';
+import { checkHealth, getPipelineInfo } from '../../api';
+import type { PipelineInfo } from '../../api';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 interface HomeStats {
@@ -17,8 +17,8 @@ interface TickerItem { source: string; translated: string; }
 
 // ─── Defaults ────────────────────────────────────────────────────────────────
 const DEFAULT_STATS: HomeStats = {
-  totalSamples: 12400000, accuracy: '98.2%', latency: '<1.2s',
-  uptime: '99.9%', activeUsers: '14k', tokensProcessed: '50M+', inferenceMs: '12ms',
+  totalSamples: 0, accuracy: 'TBD', latency: 'TBD',
+  uptime: 'Worker', activeUsers: 'HTTP', tokensProcessed: 'TBD', inferenceMs: 'TBD',
 };
 const DEFAULT_TICKER: TickerItem[] = [
   { source: 'Welcome to Vietnam',      translated: 'Chào mừng đến Việt Nam' },
@@ -28,24 +28,24 @@ const DEFAULT_TICKER: TickerItem[] = [
   { source: 'Restricted Area',         translated: 'Khu Vực Cấm' },
 ];
 const DEFAULT_ARCH = [
-  { no:'01', title:'Text-Background Separation', desc:'Isolates source text layers from complex backgrounds using the SeparateEncoder model.',      tags:['SeparateEncoder','Patch16','PyTorch'], val:'0.021',  label:'Separate MSE'   },
-  { no:'02', title:'Visual Codebook',            desc:'Vector quantizer mapping visual features to discrete visual indices.',                            tags:['Codebook','8192 Size','Quantizer'],   val:'8192',   label:'Codebook Size'  },
-  { no:'03', title:'Neural Code Translation',    desc:'Translates quantized source English codes into Vietnamese codes without relying on text OCR.',  tags:['AuxTITTransformer','NMT','Attention'],val:'0.861',  label:'BLEU Score'     },
-  { no:'04', title:'Text-Background Fusion',     desc:'Seamlessly blends translated target text images back onto the original clean background.',       tags:['FuseDecoder','Patch16','Fusion'],      val:'0.006',  label:'Fusion MSE'     },
+  { no:'01', title:'OCR Worker',          desc:'PaddleOCR PP-OCRv5 detects text regions and recognizes English text in the uploaded image.', tags:['PaddleOCR','PP-OCRv5','EN rec'], val:'TBD', label:'OCR CER' },
+  { no:'02', title:'Translation Worker',  desc:'A fine-tuned NLLB 1.3B checkpoint translates recognized English text into Vietnamese.', tags:['NLLB 1.3B','EN-VI','chrF'], val:'TBD', label:'MT chrF' },
+  { no:'03', title:'Image Postprocess',   desc:'DebackX creates masks, removes source text, and renders Vietnamese text back into the image.', tags:['OpenCV','Mask','Renderer'], val:'mask', label:'Output' },
+  { no:'04', title:'API Gateway',         desc:'VieTrans keeps web/auth/history logic separate from the GPU-heavy DebackX worker.', tags:['FastAPI','HTTP worker','Proxy'], val:'8081', label:'Worker port' },
 ];
 const PIPE_STEPS = [
-  { n:'01 / SEPARATE',  h:'Background Separation', p:'SeparateEncoder isolates a clean background layer from the source text image, completely removing text while preserving original scene details.',    tag:'SeparateEncoder · AI',  icon:'M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z' },
-  { n:'02 / CODEBOOK',  h:'Visual Quantization',   p:'Codebook model maps visual text details into discrete token sequences, capturing font style, slant, layout, and size in a visual vocabulary.', tag:'Codebook · Quantizer',  icon:'M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5' },
-  { n:'03 / TRANSLATE', h:'Neural Translation',    p:'AuxTITTransformer translates English source visual codes directly into target Vietnamese visual codes without using error-prone OCR.',       tag:'AuxTITTransformer · NMT',icon:'M12.87 15.07l-2.54-2.51.03-.03c1.74-1.94 2.98-4.17 3.71-6.53H17V4h-7V2H8v2H1v1.99h11.17C11.5 7.92 10.44 9.75 9 11.35 8.07 10.32 7.3 9.19 6.69 8h-2c.73 1.63 1.73 3.17 2.98 4.56l-5.09 5.02L4 19l5-5 3.11 3.11.76-2.04zM18.5 10h-2L12 22h2l1.12-3h4.75L21 22h2l-4.5-12zm-2.62 7l1.62-4.33L19.12 17h-3.24z' },
-  { n:'04 / FUSE',      h:'Seamless Fusion',       p:'FuseDecoder composites the translated target text image back onto the separated clean background layer, rendering a natural translation.',    tag:'FuseDecoder · Compositer',icon:'M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z' },
+  { n:'01 / OCR',       h:'Text Detection',        p:'PaddleOCR PP-OCRv5 detects text boxes and reads English text from the uploaded image.', tag:'PaddleOCR · PP-OCRv5', icon:'M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z' },
+  { n:'02 / TRANSLATE', h:'Neural Translation',    p:'The fine-tuned NLLB 1.3B checkpoint translates OCR text from English into Vietnamese.', tag:'NLLB 1.3B · EN-VI', icon:'M12.87 15.07l-2.54-2.51.03-.03c1.74-1.94 2.98-4.17 3.71-6.53H17V4h-7V2H8v2H1v1.99h11.17C11.5 7.92 10.44 9.75 9 11.35 8.07 10.32 7.3 9.19 6.69 8h-2c.73 1.63 1.73 3.17 2.98 4.56l-5.09 5.02L4 19l5-5 3.11 3.11.76-2.04zM18.5 10h-2L12 22h2l1.12-3h4.75L21 22h2l-4.5-12zm-2.62 7l1.62-4.33L19.12 17h-3.24z' },
+  { n:'03 / INPAINT',   h:'Text Removal',          p:'DebackX builds a text mask and removes source text before rendering the Vietnamese output.', tag:'OpenCV · Mask', icon:'M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5' },
+  { n:'04 / RENDER',    h:'Adaptive Rendering',    p:'Vietnamese text is drawn back with adaptive sizing, stroke, color, and merged subtitle groups.', tag:'DebackX renderer', icon:'M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z' },
 ];
 const CAPS = [
-  { n:'01', h:'Vertical & Rotated Text',  p:'Advanced detection logic handles text at any angle, including vertical East Asian scripts and skewed perspective text.' },
-  { n:'02', h:'Multi-Language Fusion',    p:'Translate images containing multiple source languages into a single target language with perfect coherence.' },
-  { n:'03', h:'Smart Font Matching',      p:'We match weight, slant, tracking, and style to ensure your translation feels like it was part of the original design.' },
-  { n:'04', h:'Context Reconstruction',   p:'Using DeBackX Separate & Fuse to erase text and reconstruct complex background textures, gradients, and subtle noise.' },
-  { n:'05', h:'Batch API Access',         p:'Process thousands of images simultaneously with our high-throughput gRPC and WebSocket API interfaces.' },
-  { n:'06', h:'Enterprise Security',      p:'SOC 2 Type II compliant processing. Your images are never used for model training without explicit consent.' },
+  { n:'01', h:'Real Worker Integration',  p:'Uploads are processed by the deployed DebackX FastAPI worker instead of precomputed demo assets.' },
+  { n:'02', h:'EN-VI Focus',              p:'The production path is scoped to English text detection and Vietnamese rendering.' },
+  { n:'03', h:'Result Metadata',          p:'Each job keeps OCR text, translation, text boxes, mask URL, and rendered output URL.' },
+  { n:'04', h:'Backend Proxy',            p:'The web backend hides the worker host while serving generated images back to the frontend.' },
+  { n:'05', h:'Evaluation Ready',         p:'BLEU, chrF, CER, WER, latency, and throughput can be shown after running the final evaluation.' },
+  { n:'06', h:'Deployment Friendly',      p:'The frontend and gateway stay light while the heavy model runs as a separate GPU worker.' },
 ];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -54,41 +54,48 @@ function formatCount(n: number): string {
   if (n >= 1_000)     return `${(n / 1_000).toFixed(1)}k+`;
   return n.toString();
 }
+
+function metricLabel(info: PipelineInfo, key: string): string {
+  const value = info.measured_metrics?.[key];
+  if (typeof value === 'number' || typeof value === 'string') return String(value);
+  return 'TBD';
+}
+
 function buildArchFromPipeline(info: PipelineInfo): typeof DEFAULT_ARCH {
   if (!info.models) return DEFAULT_ARCH;
   const m = info.models;
   return [
     {
       no: '01',
-      title: 'Text-Background Separation',
-      desc: 'Isolates source text layers from complex backgrounds using the SeparateEncoder model.',
-      tags: ['SeparateEncoder', `Patch ${m.separate?.patch_size || 16}`, 'PyTorch'],
-      val: String(m.separate?.checkpoint || '0.021').replace('checkpoint_best', '').replace('.pt', ''),
-      label: 'Separate MSE'
+      title: 'OCR Worker',
+      desc: 'PaddleOCR PP-OCRv5 detects and recognizes English text regions.',
+      tags: ['PaddleOCR', String(m.ocr_detection?.name || 'PP-OCRv5'), 'EN rec'],
+      val: metricLabel(info, 'ocr_cer'),
+      label: 'OCR CER'
     },
     {
       no: '02',
-      title: 'Visual Codebook',
-      desc: 'Vector quantizer mapping visual features to discrete visual indices.',
-      tags: ['Codebook', `${m.codebook?.codebook_size || 8192} Size`, 'Quantizer'],
-      val: String(m.codebook?.codebook_size || '8192'),
-      label: 'Codebook Size'
+      title: 'Translation Worker',
+      desc: 'Fine-tuned NLLB 1.3B handles English to Vietnamese subtitle-style text.',
+      tags: ['NLLB 1.3B', String(m.translation?.checkpoint || 'worker checkpoint'), 'EN-VI'],
+      val: metricLabel(info, 'mt_chrf'),
+      label: 'MT chrF'
     },
     {
       no: '03',
-      title: 'Neural Code Translation',
-      desc: 'Translates quantized source English codes into Vietnamese codes without relying on text OCR.',
-      tags: ['AuxTITTransformer', 'NMT', `BLEU ${m.translation?.bleu_score || '0.861'}`],
-      val: String(m.translation?.bleu_score || '0.861'),
-      label: 'BLEU Score'
+      title: 'Image Postprocess',
+      desc: 'OpenCV mask inpainting and adaptive rendering generate the final translated image.',
+      tags: ['OpenCV', 'Mask', String(m.renderer?.name || 'Renderer')],
+      val: 'mask',
+      label: 'Output'
     },
     {
       no: '04',
-      title: 'Text-Background Fusion',
-      desc: 'Seamlessly blends translated target text images back onto the original clean background.',
-      tags: ['FuseDecoder', `Patch ${m.fuse?.patch_size || 16}`, 'Fusion'],
-      val: String(m.fuse?.checkpoint || '0.006').replace('checkpoint_best', '').replace('.pt', ''),
-      label: 'Fusion MSE'
+      title: 'API Gateway',
+      desc: 'VieTrans proxies uploads, metadata, and worker output files.',
+      tags: ['FastAPI', 'HTTP worker', 'History'],
+      val: '8081',
+      label: 'Worker port'
     }
   ];
 }
@@ -156,7 +163,7 @@ const Icon: React.FC<{d:string;size?:number;color?:string}> = ({d,size=20,color=
 // ─── HomePage ─────────────────────────────────────────────────────────────────
 export const HomePage: React.FC = () => {
   const [stats,    setStats]    = useState<HomeStats>(DEFAULT_STATS);
-  const [ticker,   setTicker]   = useState<TickerItem[]>(DEFAULT_TICKER);
+  const [ticker]                = useState<TickerItem[]>(DEFAULT_TICKER);
   const [archRows, setArchRows] = useState(DEFAULT_ARCH);
   const [loading,  setLoading]  = useState(true);
 
@@ -170,26 +177,20 @@ export const HomePage: React.FC = () => {
     let gone = false;
     (async () => {
       try {
-        const [health, pipelineInfo, samplesPage] = await Promise.allSettled([
-          checkHealth(), getPipelineInfo(), listSamples(1, 10),
+        const [health, pipelineInfo] = await Promise.allSettled([
+          checkHealth(), getPipelineInfo(),
         ]);
         if (gone) return;
         let s = { ...DEFAULT_STATS };
         if (health.status === 'fulfilled') {
           const tot = health.value.total_samples;
-          if (tot > 0) { s.totalSamples = tot; s.tokensProcessed = `${Math.round(tot * 4.1 / 1_000_000)}M+`; s.activeUsers = tot > 5000 ? `${Math.round(tot/900)}k` : `${tot}`; }
+          if (tot > 0) { s.totalSamples = tot; }
         }
         if (pipelineInfo.status === 'fulfilled') {
           setArchRows(buildArchFromPipeline(pipelineInfo.value));
           if (pipelineInfo.value.total_samples > 0) s.totalSamples = pipelineInfo.value.total_samples;
         }
         setStats(s);
-        if (samplesPage.status === 'fulfilled') {
-          const items = (samplesPage.value as SamplesPage).samples
-            .filter(x => x.tit && x.ocr).slice(0, 8)
-            .map(x => ({ source: x.ocr.substring(0,60).trim(), translated: x.tit.substring(0,60).trim() }));
-          if (items.length > 0) setTicker(items);
-        }
       } catch { /* silent fallback */ } finally { if (!gone) setLoading(false); }
     })();
     return () => { gone = true; };
@@ -198,10 +199,10 @@ export const HomePage: React.FC = () => {
   const tickerItems  = [...ticker, ...ticker];
   const tickDuration = Math.max(20, tickerItems.length * 3.5);
   const numBand      = [
-    { rawStr: stats.tokensProcessed,            label:'Tokens Processed', delay:0   },
-    { rawStr: stats.inferenceMs,                label:'Inference Latency',delay:120 },
-    { rawStr: stats.uptime,                     label:'Service Uptime',   delay:240 },
-    { rawStr: stats.activeUsers,                label:'Active Users',     delay:360 },
+    { rawStr: stats.tokensProcessed,            label:'MT chrF',          delay:0   },
+    { rawStr: stats.inferenceMs,                label:'Worker Latency',   delay:120 },
+    { rawStr: stats.uptime,                     label:'Worker Status',    delay:240 },
+    { rawStr: stats.activeUsers,                label:'Gateway Mode',     delay:360 },
   ];
 
   return (
@@ -366,15 +367,15 @@ export const HomePage: React.FC = () => {
               <div className="hd-sep"></div>
               <div className="hd-desc-col" style={{ animation:'hp-fadeup 0.6s 0.38s cubic-bezier(0.22,1,0.36,1) both' }}>
                 <p className="hd-desc">
-                  VieTrans uses the DeBackX end-to-end model to separate text, translate visual
-                  features using discrete visual codes, and fuse the results back seamlessly in a single pipeline.
+                  VieTrans sends each uploaded image to the DebackX worker, where PaddleOCR,
+                  a fine-tuned NLLB 1.3B model, and the renderer produce the translated result.
                 </p>
                 <div className="hd-ctas">
                   <Link to="/studio" className="btn-primary">Open Studio →</Link>
                   <Link to="/docs"   className="btn-secondary">API Docs</Link>
                 </div>
                 <div className="hd-pills">
-                  {['Separate','Codebook','Translate','Fuse'].map((p,i) => (
+                  {['PaddleOCR','NLLB 1.3B','Mask','Render'].map((p,i) => (
                     <span key={p} className="hd-pill" style={{ animationDelay:`${0.42 + i*0.07}s`, animation:'hp-fadeup 0.4s cubic-bezier(0.22,1,0.36,1) both' }}>{p}</span>
                   ))}
                 </div>
@@ -385,7 +386,7 @@ export const HomePage: React.FC = () => {
 
         {/* Live ticker */}
         <div className="hero-ticker">
-          <span className="ht-lbl">Live stream</span>
+          <span className="ht-lbl">Examples</span>
           <div className="ht-track">
             <div className="ht-inner" style={{ animationDuration:`${tickDuration}s` }}>
               {tickerItems.map((item,i) => (
@@ -425,8 +426,8 @@ export const HomePage: React.FC = () => {
             <div className="sec-h">One upload.<br />Four steps.<br /><em>Zero effort.</em></div>
           </div>
           <div className="sec-desc">
-            Submit via drag-and-drop or API. VieTrans runs four AI layers and returns
-            a fully translated image in under 1.2 s on average.
+            Submit via drag-and-drop or API. VieTrans keeps the web app light and delegates
+            OCR, translation, masking, and rendering to the DebackX worker.
           </div>
         </div>
 
@@ -472,11 +473,11 @@ export const HomePage: React.FC = () => {
         }}>
           <div>
             <span className="sec-lbl">02 — Architecture</span>
-            <div className="sec-h">Six layers.<br />One <em>seamless</em> output.</div>
+            <div className="sec-h">Worker pipeline.<br />One translated output.</div>
           </div>
           <div className="sec-desc">
-            Each layer is independently benchmarked, versioned, and hot-swappable.
-            99.9% SLA even as models update.
+            The gateway stays CPU-friendly while the heavy OCR and NLLB inference runs in
+            a separate DebackX service that can be deployed on a GPU host.
           </div>
         </div>
 
@@ -527,11 +528,11 @@ export const HomePage: React.FC = () => {
         }}>
           <div>
             <span className="sec-lbl">03 — Capabilities</span>
-            <div className="sec-h">Deep visual <br /><em>intelligence.</em></div>
+            <div className="sec-h">Image translation<br /><em>for real uploads.</em></div>
           </div>
           <div className="sec-desc">
-            Beyond simple translation. VieTrans understands layout, depth, and typography
-            to deliver a native-looking result.
+            The frontend and backend now report live worker results, not precomputed demo
+            rows or marketing-only benchmark claims.
           </div>
         </div>
 

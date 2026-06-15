@@ -1,95 +1,98 @@
-# VieTrans: In-Image Machine Translation (EN→VI)
+# VieTrans Web Gateway for DebackX
 
-**VieTrans**: An In-Image Machine Translation system capable of translating text inside images while preserving the original real-world background.
-
----
+VieTrans is the web application that calls the DebackX image-translation worker. The web app stays lightweight: it handles upload UI, authentication, history, downloads, and API proxying, while OCR, NLLB translation, masking, and rendering run in the DebackX worker service.
 
 ## Project Structure
 
-The project consists of three main components:
+- `FE/`: React + Vite frontend with studio upload, batch queue, editor, dashboard, auth, and API docs.
+- `BE-Models/`: FastAPI gateway. It no longer contains the heavy model runtime; it forwards work to DebackX through `IIMT_WORKER_URL`.
 
-- **`BE-Models/`**: Model source code (PyTorch), training scripts, and the Backend API (FastAPI).
-- **`FE/`**: User interface (Frontend) built with React + Vite + TailwindCSS.
-- **`IIMT30k_Vi/`**: Sample dataset used for testing and evaluation.
+## Runtime Architecture
 
----
+1. User uploads an image from the Studio or calls `POST /api/upload`.
+2. VieTrans backend validates the file and forwards it to the DebackX worker.
+3. DebackX runs PaddleOCR, the fine-tuned NLLB 1.3B translation model, mask generation, and rendering.
+4. VieTrans normalizes the result and exposes `input`, `result`, `mask`, and `metadata` URLs to the frontend.
+5. If the request includes a valid user token, the result is saved to MongoDB history.
 
-## Setup and Installation
-
-### 1. Prerequisites
-
-- **Python 3.10+** (Recommended to use a virtual environment like `venv` or `conda`).
-- **Node.js 18+** & **npm**.
-- **GPU** (Optional): Performance is significantly improved if an NVIDIA GPU (CUDA) or Apple Silicon (MPS) is available.
-
-### 2. Backend Setup (Server)
-
-Open your terminal and navigate to the backend directory:
+## Backend Setup
 
 ```bash
 cd BE-Models
-# Create a virtual environment (optional)
-python -m venv venv
-source venv/bin/activate  # Or venv\Scripts\activate on Windows
-
-# Install dependencies
+python -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
+cp server/.env.example server/.env
 ```
 
-**Note on PyTorch:**
-The system automatically detects and uses Apple Metal (MPS) on Mac. For Windows/Linux with NVIDIA GPUs, ensure you install the CUDA-enabled version of `torch`.
+Set the worker URL in `server/.env`:
 
-### 3. Frontend Setup (UI)
+```env
+IIMT_WORKER_URL=http://localhost:8081
+IIMT_WORKER_TIMEOUT_SECONDS=300
+VIETRANS_MAX_UPLOAD_MB=20
+```
 
-Open a new terminal and navigate to the frontend directory:
+Run the gateway:
+
+```bash
+cd BE-Models
+uvicorn server.app:app --host 0.0.0.0 --port 8000 --reload
+```
+
+## Docker Environment
+
+Use Docker Compose when you want the web backend to run in an isolated environment with its own MongoDB:
+
+```bash
+cd /home/yusato/workspace/new-Vie
+cp .env.docker.example .env
+docker compose up --build
+```
+
+Default services:
+
+- VieTrans frontend: `http://localhost:5173`
+- VieTrans gateway: `http://localhost:8001`
+- MongoDB: `localhost:27017`
+- DebackX worker expected at: `http://host.docker.internal:8081`
+
+If DebackX runs at another URL, edit `IIMT_WORKER_URL` in `.env` before starting Compose.
+If DebackX is not running yet, the app UI still opens. The gateway health endpoint will report a degraded worker state and uploads will fail until the worker is started.
+
+When running the frontend against this Docker backend, set:
+
+```env
+VITE_API_URL=http://localhost:8001
+```
+
+## Frontend Setup
 
 ```bash
 cd FE
 npm install
-```
-
----
-
-## Running the Application
-
-You need to run both the Backend and Frontend **simultaneously**.
-
-### Step 1: Start the Backend API
-
-Navigate to the `server` directory inside `BE-Models` and run:
-
-```bash
-cd BE-Models/server
-uvicorn app:app --host 0.0.0.0 --port 8000 --reload
-```
-
-*The API will be available at: `http://localhost:8000`*
-
-### Step 2: Start the Frontend
-
-In the `FE` directory, run:
-
-```bash
-cd FE
 npm run dev
 ```
 
-*The UI will be available at: `http://localhost:5173` (or the port shown in your terminal)*
+The frontend reads `VITE_API_URL`. Use the Docker gateway URL when running with Compose:
 
----
+```env
+VITE_API_URL=http://localhost:8001
+```
 
-## Key Features
+If you run the backend directly with `uvicorn` on port `8000`, set `VITE_API_URL=http://localhost:8000` instead or leave it unset.
 
-1. **Browse Samples**: Explore pre-processed examples from the `IIMT30k_Vi` test set.
-2. **Live Translation**: Upload any image containing English text to translate it into Vietnamese in real-time.
-3. **Pipeline Visualization**: View details for each processing stage:
-   - **Separate**: Extracts text from the background.
-   - **Translate**: Translates text features from English to Vietnamese.
-   - **Fuse**: Merges the translated text back onto the original background.
+## Main API
 
----
+- `GET /api/health`: gateway and worker health.
+- `GET /api/pipeline-info`: pipeline/model metadata exposed by the gateway.
+- `POST /api/upload`: multipart upload with field name `file`.
+- `GET /api/jobs/{job_id}`: cached normalized job metadata.
+- `GET /api/images/result/{job_id}`: final translated image.
+- `GET /api/images/mask/{job_id}`: text mask image.
+- `GET /api/download/result/{job_id}`: download as `jpg`, `png`, or `webp`.
+- `GET /api/history`: authenticated user history.
 
-## References/ License
+## Notes for Graduation Project Reporting
 
-- Paper: [Exploring In-Image Machine Translation with Real-World Background (ACL 2025)](https://arxiv.org/abs/2505.15282)
-- Dataset: [IIMT30k on HuggingFace](https://huggingface.co/datasets/yztian/IIMT30k)
+The repo should only display measured values that come from the DebackX evaluation scripts or a final report. Keep report metrics such as BLEU, chrF, OCR CER/WER, latency, RAM/VRAM, throughput, and end-to-end quality in the thesis documentation instead of hard-coded marketing numbers.

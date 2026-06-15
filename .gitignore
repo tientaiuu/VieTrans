@@ -21,3 +21,12 @@ venv/
 # ─── Build outputs ────────────────────────────────────────────────────────────
 dist/
 build/
+FE/dist/
+BE-Models/outputs/
+BE-Models/server/__pycache__/
+
+# ─── Model artifacts stay in DebackX/worker storage ──────────────────────────
+*.pt
+*.pth
+*.ckpt
+*.safetensors

@@ -1,6 +1,7 @@
 /**
- * DeBackX API Client
- * Communicates with the FastAPI backend at localhost:8000
+ * VieTrans API client.
+ * The frontend calls the VieTrans backend gateway; the backend calls the
+ * deployed DebackX worker.
  */
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
@@ -9,50 +10,78 @@ const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
 export interface PipelineStages {
   input: string;
-  back: string;
-  text_en: string;
-  text_vi: string;
-  fuse: string;
+  result: string;
+  mask: string;
+  metadata: string;
+  fuse?: string;
+  back?: string;
+  text_en?: string;
+  text_vi?: string;
 }
 
-export interface SampleDetail {
-  id: number | string;
+export interface TranslationRegion {
+  index?: number;
+  ocr_text?: string;
+  translation?: string;
+  detector_text?: string;
+  detector_confidence?: number;
+  detector_backend?: string;
+}
+
+export interface UploadResult {
+  id: string;
+  job_id: string;
+  matched_id: string;
+  status: string;
+  mode: string;
+  match_quality: 'live_inference';
+  created_at?: string;
+  started_at?: string;
+  finished_at?: string;
+  latency_ms?: number | null;
+  latency_seconds?: number | null;
+  num_regions: number;
+  avg_confidence?: number | null;
   tit: string;
   ocr: string;
+  regions: TranslationRegion[];
   stages: PipelineStages;
+  error?: unknown;
 }
 
-export interface SampleListItem {
-  id: number | string;
-  tit: string;
-  ocr: string;
-}
-
-export interface SamplesPage {
+export interface JobsPage {
   page: number;
   limit: number;
   total: number;
   total_pages: number;
-  samples: SampleListItem[];
-}
-
-export interface UploadResult {
-  matched_id: number | string;
-  tit: string;
-  ocr: string;
-  stages: PipelineStages;
+  jobs: UploadResult[];
 }
 
 export interface PipelineInfo {
+  name: string;
   total_samples: number;
+  source_language: string;
+  target_language: string;
+  worker_url: string;
   stages: { key: string; name: string; name_en: string }[];
   models: Record<string, Record<string, unknown>>;
-  image_size: { width: number; height: number };
+  measured_metrics: Record<string, unknown>;
+}
+
+export interface HealthStatus {
+  status: string;
+  service: string;
+  worker_url: string;
+  worker_status: string;
+  cached_jobs: number;
+  auth_ready: boolean;
+  total_samples: number;
+  worker?: Record<string, unknown>;
 }
 
 // ─── API Functions ──────────────────────────────────────────────────────────
 
-export async function checkHealth(): Promise<{ status: string; total_samples: number }> {
+export async function checkHealth(): Promise<HealthStatus> {
   const res = await fetch(`${API_BASE}/api/health`);
   if (!res.ok) throw new Error('Backend unavailable');
   return res.json();
@@ -64,21 +93,15 @@ export async function getPipelineInfo(): Promise<PipelineInfo> {
   return res.json();
 }
 
-export async function listSamples(page = 1, limit = 20): Promise<SamplesPage> {
-  const res = await fetch(`${API_BASE}/api/samples?page=${page}&limit=${limit}`);
-  if (!res.ok) throw new Error('Failed to fetch samples');
+export async function listJobs(page = 1, limit = 12): Promise<JobsPage> {
+  const res = await fetch(`${API_BASE}/api/jobs?page=${page}&limit=${limit}`);
+  if (!res.ok) throw new Error('Failed to fetch jobs');
   return res.json();
 }
 
-export async function getSample(id: number | string): Promise<SampleDetail> {
-  const res = await fetch(`${API_BASE}/api/samples/${id}`);
-  if (!res.ok) throw new Error(`Sample ${id} not found`);
-  return res.json();
-}
-
-export async function getRandomSample(): Promise<SampleDetail> {
-  const res = await fetch(`${API_BASE}/api/random`);
-  if (!res.ok) throw new Error('Failed to fetch random sample');
+export async function getJob(id: string): Promise<UploadResult> {
+  const res = await fetch(`${API_BASE}/api/jobs/${id}`);
+  if (!res.ok) throw new Error(`Job ${id} not found`);
   return res.json();
 }
 
@@ -309,4 +332,3 @@ export async function getCurrentUser(token: string): Promise<AuthUser> {
   if (!res.ok) throw new Error('Not authenticated');
   return res.json();
 }
-

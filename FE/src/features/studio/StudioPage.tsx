@@ -23,11 +23,14 @@ function useWindowWidth() {
 
 // ─── Pipeline stages definition ───────────────────────────────────────────────
 const PIPELINE_STAGES = [
-  { key: 'input',   label: 'Input',       icon: <ImageIcon size={15} />,   desc: 'Original image loaded' },
-  { key: 'back',    label: 'Separation',  icon: <ScanLine size={15} />,    desc: 'Text & background split' },
-  { key: 'text_vi', label: 'Translation', icon: <Languages size={15} />,   desc: 'EN → VI rendering' },
-  { key: 'fuse',    label: 'Fusion',      icon: <Blend size={15} />,       desc: 'Layers composited' },
+  { key: 'input',    label: 'Upload',      icon: <ImageIcon size={15} />,  desc: 'Original image received' },
+  { key: 'mask',     label: 'OCR + Mask',  icon: <ScanLine size={15} />,   desc: 'Text boxes and mask generated' },
+  { key: 'metadata', label: 'Translate',   icon: <Languages size={15} />,  desc: 'OCR text translated to Vietnamese' },
+  { key: 'result',   label: 'Render',      icon: <Blend size={15} />,      desc: 'Vietnamese text drawn into image' },
 ];
+
+const getResultStage = (stages: { result?: string; fuse?: string; input?: string }) =>
+  stages.result || stages.fuse || stages.input || '';
 
 // ─── Spinner ─────────────────────────────────────────────────────────────────
 const Spinner: React.FC<{ size?: number; color?: string }> = ({ size = 14, color = '#fff' }) => (
@@ -87,7 +90,7 @@ export const StudioPage: React.FC = () => {
 
   const handleCopyUrl = () => {
     if (!activeItem?.result) return;
-    navigator.clipboard.writeText(imageUrl(activeItem.result.stages.fuse));
+    navigator.clipboard.writeText(imageUrl(getResultStage(activeItem.result.stages)));
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
@@ -99,7 +102,7 @@ export const StudioPage: React.FC = () => {
       if (activeItem.editedImage) {
         await downloadDataUriAsFile(activeItem.editedImage, downloadFilename, downloadFormat);
       } else {
-        const url = buildDownloadUrl('fuse', String(activeItem.result.matched_id), downloadFilename, downloadFormat);
+        const url = buildDownloadUrl('result', String(activeItem.result.matched_id), downloadFilename, downloadFormat);
         const a = document.createElement('a');
         a.href = url;
         a.download = `${downloadFilename}.${downloadFormat}`;
@@ -143,8 +146,8 @@ export const StudioPage: React.FC = () => {
             color: '#fff', fontSize: '9px', fontWeight: 700,
             letterSpacing: '0.12em', padding: '2px 8px', borderRadius: '3px',
             flexShrink: 0,
-          }}>STUDIO BETA</span>
-          {!isMobile && <span style={{ color: 'var(--ink4)' }}>Production · SEA-West</span>}
+          }}>DEBACKX WORKER</span>
+          {!isMobile && <span style={{ color: 'var(--ink4)' }}>PaddleOCR PP-OCRv5 · NLLB 1.3B</span>}
           {activeItem?.result && (
             <span style={{ color: 'var(--ink3)', display: 'flex', alignItems: 'center', gap: '5px', flexShrink: 0 }}>
               <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#22c55e', display: 'inline-block' }} />
@@ -511,7 +514,7 @@ export const StudioPage: React.FC = () => {
                 <div style={{ display: activeTab === 'single' ? 'flex' : 'none', flex: 1, flexDirection: 'column', minHeight: 0 }}>
                   <CanvasEditor
                     key={canvasKey}
-                    imageUrl={activeItem.editedImage || imageUrl(activeItem.result.stages.fuse)}
+                    imageUrl={activeItem.editedImage || imageUrl(getResultStage(activeItem.result.stages))}
                     onSave={async (imgData) => {
                       setEditedImage(activeItem.id, imgData);
                       try {
@@ -527,7 +530,7 @@ export const StudioPage: React.FC = () => {
                 <div style={{ display: activeTab === 'comparison' ? 'flex' : 'none', flex: 1, flexDirection: 'column', minHeight: 0 }}>
                   <ComparisonSlider
                     original={imageUrl(activeItem.result.stages.input)}
-                    translated={activeItem.editedImage || imageUrl(activeItem.result.stages.fuse)}
+                    translated={activeItem.editedImage || imageUrl(getResultStage(activeItem.result.stages))}
                   />
                 </div>
                 {activeTab === 'json' && (

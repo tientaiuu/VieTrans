@@ -1,53 +1,34 @@
 ## Project Context
 
-A JavaScript project using Next.js, React. Contains 34 files across 4 directories.
+React + Vite frontend for VieTrans. The app calls the FastAPI gateway in `BE-Models`, and that gateway calls the DebackX worker for image translation.
 
 ## Stack
 
-**Languages:**
-- JavaScript (93%)
-- CSS (7%)
-
-**Frameworks & Tools:**
-- Next.js (web)
-- React (web)
+- React
+- TypeScript
+- Vite
+- Zustand
+- React Router
+- Tailwind/CSS variables
 
 ## Commands
 
 ```bash
-npm run dev  # dev
-npm run build  # build
-npm run start  # start
-npm run lint  # lint
+npm run dev
+npm run build
+npm run lint
 ```
-
-## Conventions
-
-- **Naming**: mixed
-- **File organization**: flat
-- **Config files**: jsconfig.json, eslint.config.mjs
 
 ## Architecture
 
-**Key directories:**
-- `app/` - Application code
-- `public/` - Static public assets
+- `src/api.ts`: client for the FastAPI gateway.
+- `src/features/studio`: upload queue, comparison view, and editor.
+- `src/features/dashboard`: authenticated translation history.
+- `src/features/account`: profile/history/settings/project information.
+- `src/features/docs`: gateway API documentation.
 
 ## Boundaries
 
-**Always:**
-- Run existing tests before committing changes
-- Run `npm run lint` before committing
-- Follow mixed naming convention
-- Follow flat file organization
-
-**Ask first:**
-- Adding new dependencies
-- Changing project configuration files
-
-**Never:**
-- Commit secrets, API keys, or .env files
-- Delete or overwrite test files without understanding them
-- Force push to main/master branch
-
-<!-- agentseed:meta {"sha":"ac03a107fe39e409cd027afff8da66d698a5ad02","timestamp":"2026-03-19T03:32:37.310Z","format":"agentseed-v1"} -->
+- Do not add browser OCR or local model inference here; DebackX handles OCR, translation, masking, and rendering.
+- Keep UI text aligned with measured project results, not hard-coded marketing metrics.
+- Do not commit `.env` files or generated build output.

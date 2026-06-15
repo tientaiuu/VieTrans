@@ -1,23 +1,28 @@
-# Sử dụng Python 3.10
 FROM python:3.10-slim
 
-# Thiết lập thư mục làm việc
 WORKDIR /app
 
-# Copy requirement và cài đặt
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PYTHONPATH="/app/server:${PYTHONPATH}" \
+    VIETRANS_RUNTIME_DIR="/app/outputs/gateway"
+
+RUN addgroup --system app && adduser --system --ingroup app app
+
 COPY requirements.txt .
-# Tải PyTorch phiên bản CPU để nhẹ và phù hợp với HuggingFace Space miễn phí
-RUN pip install --no-cache-dir torch torchvision --index-url https://download.pytorch.org/whl/cpu
-RUN pip install --no-cache-dir -r requirements.txt
+RUN python -m pip install --upgrade pip \
+    && pip install -r requirements.txt
 
-# Copy toàn bộ code BE-Models vào
-COPY . .
+COPY server ./server
+RUN mkdir -p /app/outputs/gateway/jobs \
+    && chown -R app:app /app
 
-# Hugging Face yêu cầu ứng dụng phải chạy ở cổng 7860
 EXPOSE 7860
 
-# Cấu hình để Python có thể tìm thấy thư viện trong thư mục server
-ENV PYTHONPATH="/app/server:${PYTHONPATH}"
+USER app
 
-# Chạy FastAPI (app.py nằm trong thư mục server)
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+    CMD python -c "import socket; s=socket.create_connection(('127.0.0.1', 7860), 5); s.close()"
+
 CMD ["uvicorn", "server.app:app", "--host", "0.0.0.0", "--port", "7860"]

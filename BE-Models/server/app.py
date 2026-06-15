@@ -1,210 +1,52 @@
 """
-VieTrans API Server
-──────────────────
-Serve pre-computed pipeline results (Separate → Translation → Fuse)
-as a REST API for the FE frontend.
+VieTrans API gateway for the DebackX image-translation worker.
 
-Usage:
-    cd BE-Models/server
-    uvicorn app:app --host 0.0.0.0 --port 8000 --reload
+The web backend stays lightweight: it handles auth, history, file proxying, and
+frontend-facing response shapes, while the deployed DebackX worker runs OCR,
+translation, inpainting, and rendering.
 """
 from __future__ import annotations
 
-import os
+import base64
 import io
-import hashlib
-import random
-from pathlib import Path
-from typing import Optional
-
-from fastapi import FastAPI, HTTPException, UploadFile, File, Query, Depends, Request
-from pydantic import BaseModel
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
-from fastapi.security.utils import get_authorization_scheme_param
+import json
+import os
+import time
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from typing import Any, Optional
+from urllib.parse import urljoin
+
+import httpx
+from fastapi import Depends, FastAPI, File, HTTPException, Query, Request, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse, Response, StreamingResponse
+from fastapi.security.utils import get_authorization_scheme_param
 from PIL import Image
-import asyncio
-import uuid
+from pydantic import BaseModel
 
-# Import auth module
-from auth import router as auth_router, init_mongo, close_mongo, decode_token, get_db, get_current_user
-
-# Import our PyTorch inference pipeline
 try:
-    from inference import pipeline as dbx_pipeline
-except Exception as e:
-    import traceback
-    print(f"[Warning] Failed to load inference pipeline: {e}")
-    traceback.print_exc()
-    dbx_pipeline = None
+    from .auth import router as auth_router
+    from .auth import close_mongo, decode_token, get_current_user, get_db, init_mongo
+except ImportError:
+    from auth import router as auth_router
+    from auth import close_mongo, decode_token, get_current_user, get_db, init_mongo
 
-# Concurrency lock for heavy GPU/MPS operations
-inference_lock = asyncio.Lock()
 
-# ─── Path resolution ──────────────────────────────────────────────────────────
 SERVER_DIR = Path(__file__).resolve().parent
-DEBACK_ROOT = SERVER_DIR.parent  # /Users/…/DA/Deback
-PROJECT_ROOT = DEBACK_ROOT.parent  # /Users/…/DA
+RUNTIME_DIR = Path(os.environ.get("VIETRANS_RUNTIME_DIR", SERVER_DIR.parent / "outputs" / "gateway"))
+JOBS_DIR = RUNTIME_DIR / "jobs"
+JOBS_DIR.mkdir(parents=True, exist_ok=True)
 
-RESULTS_DIR = DEBACK_ROOT / "outputs" / "results"
-DATASET_DIR = PROJECT_ROOT / "IIMT30k_Vi" / "Arial" / "test"
+WORKER_URL = os.environ.get("IIMT_WORKER_URL", "http://localhost:8081").rstrip("/")
+WORKER_TIMEOUT = float(os.environ.get("IIMT_WORKER_TIMEOUT_SECONDS", "300"))
+MAX_UPLOAD_BYTES = int(os.environ.get("VIETRANS_MAX_UPLOAD_MB", "20")) * 1024 * 1024
+AUTH_ENABLED = os.environ.get("AUTH_ENABLED", "true").lower() not in {"0", "false", "no"}
+auth_ready = False
 
-# Pipeline stage directories
-PATHS = {
-    "input":       DATASET_DIR / "en" / "image",
-    "input_text":  DATASET_DIR / "en" / "text",
-    "back":        RESULTS_DIR / "separate" / "test" / "back" / "en",
-    "text_en":     RESULTS_DIR / "separate" / "test" / "text" / "en",
-    "text_vi":     RESULTS_DIR / "translation" / "test" / "vi",
-    "fuse":        RESULTS_DIR / "fuse" / "test" / "vi",
-}
-
-LIVE_DIR = RESULTS_DIR / "live"
-LIVE_DIR.mkdir(parents=True, exist_ok=True)
-
-THUMB_DIR = RESULTS_DIR / ".thumbs"
-THUMB_DIR.mkdir(parents=True, exist_ok=True)
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# MOCK MODE - Tạm thời: match ảnh upload với mockdata/En → trả về mockdata/Vi
-# ĐỂ XÓA: xóa toàn bộ block từ dòng này đến dòng END MOCK MODE
-# ═══════════════════════════════════════════════════════════════════════════════
-MOCK_MODE_ENABLED = True  # ← đặt False để tắt mock mode
-MOCKDATA_DIR = DEBACK_ROOT / "mockdata"
-MOCK_EN_DIR = MOCKDATA_DIR / "En"
-MOCK_VI_DIR = MOCKDATA_DIR / "Vi"
-MOCK_DELAY_SECONDS = (4, 7.0)  # (min, max) giây delay giả lập
-
-_mock_hashes: dict[str, str] = {}  # phash → stem name (e.g. "22")
-
-
-def _build_mock_hashes():
-    """Build perceptual hashes for all English mockdata images."""
-    global _mock_hashes
-    if not MOCK_MODE_ENABLED or not MOCK_EN_DIR.exists():
-        return
-    for f in sorted(MOCK_EN_DIR.iterdir()):
-        if f.suffix.lower() not in (".jpg", ".jpeg", ".png"):
-            continue
-        try:
-            img = Image.open(f).convert("L").resize((16, 16), Image.LANCZOS)
-            pixels = list(img.getdata())
-            avg = sum(pixels) / len(pixels)
-            bits = "".join("1" if p > avg else "0" for p in pixels)
-            _mock_hashes[bits] = f.stem
-        except Exception as ex:
-            print(f"[MockMode] Could not hash {f.name}: {ex}")
-    print(f"[MockMode] Indexed {len(_mock_hashes)} mockdata images from {MOCK_EN_DIR}")
-
-
-def _find_mock_match(img_bytes: bytes) -> str | None:
-    """
-    Compute phash of uploaded image and find the closest match in mockdata/En/.
-    Returns the stem (e.g. '22') if match found within threshold, else None.
-    """
-    if not MOCK_MODE_ENABLED or not _mock_hashes:
-        return None
-    try:
-        img = Image.open(io.BytesIO(img_bytes)).convert("L").resize((16, 16), Image.LANCZOS)
-        pixels = list(img.getdata())
-        avg = sum(pixels) / len(pixels)
-        upload_hash = "".join("1" if p > avg else "0" for p in pixels)
-    except Exception:
-        return None
-
-    best_stem = None
-    best_dist = 999
-    for ref_hash, stem in _mock_hashes.items():
-        dist = sum(c1 != c2 for c1, c2 in zip(upload_hash, ref_hash))
-        if dist < best_dist:
-            best_dist = dist
-            best_stem = stem
-
-    # Threshold: ≤ 30 bits different out of 256 (< 12% mismatch)
-    MOCK_MATCH_THRESHOLD = 30
-    if best_dist <= MOCK_MATCH_THRESHOLD:
-        print(f"[MockMode] Matched upload → mockdata/{best_stem}.jpg (hamming={best_dist})")
-        return best_stem
-    print(f"[MockMode] No match found (best hamming={best_dist})")
-    return None
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# END MOCK MODE
-# ═══════════════════════════════════════════════════════════════════════════════
-
-# ─── Cache text results at startup ────────────────────────────────────────────
-TIT_FILE = RESULTS_DIR / "translation" / "test" / "tit.vi"
-OCR_FILE = RESULTS_DIR / "fuse" / "test" / "ocr.vi"
-
-_tit_lines: list[str] = []
-_ocr_lines: list[str] = []
-_sample_ids: list[int] = []
-_input_hashes: dict[str, int] = {}  # perceptual hash → sample id
-
-
-def _load_text_cache():
-    global _tit_lines, _ocr_lines
-    if TIT_FILE.exists():
-        _tit_lines = TIT_FILE.read_text(encoding="utf-8").splitlines()
-    if OCR_FILE.exists():
-        _ocr_lines = OCR_FILE.read_text(encoding="utf-8").splitlines()
-
-
-def _scan_sample_ids():
-    """Build sorted list of available sample IDs from fuse results."""
-    global _sample_ids
-    fuse_dir = PATHS["fuse"]
-    if fuse_dir.exists():
-        ids = []
-        for f in fuse_dir.iterdir():
-            if f.suffix == ".jpg":
-                try:
-                    ids.append(int(f.stem))
-                except ValueError:
-                    pass
-        _sample_ids = sorted(ids)
-
-
-def _build_input_hashes():
-    """Build simple perceptual hashes of input images for matching uploads."""
-    global _input_hashes
-    input_dir = PATHS["input"]
-    if not input_dir.exists():
-        return
-    for f in sorted(input_dir.iterdir()):
-        if f.suffix != ".jpg":
-            continue
-        try:
-            sample_id = int(f.stem)
-        except ValueError:
-            continue
-        try:
-            img = Image.open(f).convert("L").resize((8, 8), Image.LANCZOS)
-            pixels = list(img.getdata())
-            avg = sum(pixels) / len(pixels)
-            bits = "".join("1" if p > avg else "0" for p in pixels)
-            _input_hashes[bits] = sample_id
-        except Exception:
-            pass
-
-
-def _compute_phash(img_bytes: bytes) -> str:
-    """Compute a simple perceptual hash from uploaded image bytes."""
-    img = Image.open(io.BytesIO(img_bytes)).convert("L").resize((8, 8), Image.LANCZOS)
-    pixels = list(img.getdata())
-    avg = sum(pixels) / len(pixels)
-    return "".join("1" if p > avg else "0" for p in pixels)
-
-
-def _hamming_distance(a: str, b: str) -> int:
-    return sum(c1 != c2 for c1, c2 in zip(a, b))
-
-
-# ─── FastAPI app ──────────────────────────────────────────────────────────────
 app = FastAPI(
-    title="DebackX Pipeline API",
-    description="Serve pre-computed In-Image Machine Translation results",
+    title="VieTrans DebackX Gateway",
+    description="Frontend-facing API that calls the DebackX EN-VI image translation worker.",
     version="1.0.0",
 )
 
@@ -216,261 +58,186 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
-# Mount auth router
 app.include_router(auth_router)
 
 
-@app.on_event("startup")
-async def startup():
-    # Initialize MongoDB for auth
-    await init_mongo()
-
-    _load_text_cache()
-    _scan_sample_ids()
-    _build_input_hashes()
-    _build_mock_hashes()  # MOCK MODE
-    print(f"[DebackX] Loaded {len(_sample_ids)} samples, {len(_tit_lines)} text lines, {len(_input_hashes)} hashes")
-    
-    if dbx_pipeline:
-        # Preload the 4 transformer models into RAM/VRAM
-        await asyncio.to_thread(dbx_pipeline.load_models)
+def _worker_url(path: str | None) -> str | None:
+    if not path:
+        return None
+    if path.startswith("http://") or path.startswith("https://"):
+        return path
+    return urljoin(WORKER_URL + "/", path.lstrip("/"))
 
 
-@app.on_event("shutdown")
-async def shutdown():
-    await close_mongo()
+def _job_path(job_id: str) -> Path:
+    if not job_id or any(char in job_id for char in "/\\"):
+        raise HTTPException(status_code=422, detail="Invalid job id")
+    return JOBS_DIR / f"{job_id}.json"
 
 
-# ─── Endpoints ────────────────────────────────────────────────────────────────
-
-@app.get("/api/health")
-async def health():
-    return {"status": "ok", "total_samples": len(_sample_ids)}
-
-
-@app.get("/api/pipeline-info")
-async def pipeline_info():
-    """Return pipeline metadata and model info."""
-    return {
-        "total_samples": len(_sample_ids),
-        "stages": [
-            {"key": "separate", "name": "Tách nền và chữ", "name_en": "Text-Background Separation"},
-            {"key": "translate", "name": "Dịch hình ảnh chữ", "name_en": "Image Translation (EN→VI)"},
-            {"key": "fuse", "name": "Ghép ảnh kết quả", "name_en": "Text-Background Fusion"},
-        ],
-        "models": {
-            "separate": {"checkpoint": "checkpoint_best0.021.pt", "patch_size": 16},
-            "codebook": {"checkpoint": "checkpoint_best0.020.pt", "codebook_size": 8192},
-            "translation": {"checkpoint": "checkpoint_best0.861.pt", "bleu_score": 0.861},
-            "fuse": {"checkpoint": "checkpoint_best0.006.pt", "patch_size": 16},
-        },
-        "image_size": {"width": 512, "height": 48},
-    }
-
-
-@app.get("/api/samples")
-async def list_samples(
-    page: int = Query(1, ge=1),
-    limit: int = Query(20, ge=1, le=100),
-):
-    """Paginated list of sample IDs."""
-    total = len(_sample_ids)
-    start = (page - 1) * limit
-    end = min(start + limit, total)
-    ids = _sample_ids[start:end]
-
-    samples = []
-    for sid in ids:
-        tit = _tit_lines[sid - 1] if sid <= len(_tit_lines) else ""
-        ocr = _ocr_lines[sid - 1] if sid <= len(_ocr_lines) else ""
-        samples.append({"id": sid, "tit": tit, "ocr": ocr})
-
-    return {
-        "page": page,
-        "limit": limit,
-        "total": total,
-        "total_pages": (total + limit - 1) // limit,
-        "samples": samples,
-    }
-
-
-@app.get("/api/samples/{sample_id}")
-async def get_sample(sample_id: str):
-    """Full detail for a single sample — all pipeline stage URLs."""
-    tit = ""
-    ocr = ""
-    
-    # Check if sample_id is a live inference UUID
-    if "-" in sample_id or len(sample_id) > 10:
-        if not (LIVE_DIR / sample_id).exists():
-            raise HTTPException(404, f"Live Sample {sample_id} not found")
-        tit_path = LIVE_DIR / sample_id / "tit.txt"
-        tit = tit_path.read_text(encoding="utf-8") if tit_path.exists() else ""
-    else:
-        try:
-            sid_int = int(sample_id)
-        except ValueError:
-            raise HTTPException(422, "Invalid sample ID format")
-            
-        if sid_int not in _sample_ids:
-            raise HTTPException(404, f"Sample {sid_int} not found")
-
-        tit = _tit_lines[sid_int - 1] if sid_int <= len(_tit_lines) else ""
-        ocr = _ocr_lines[sid_int - 1] if sid_int <= len(_ocr_lines) else ""
-
-    base = "/api/images"
-    return {
-        "id": sample_id,
-        "tit": tit,
-        "ocr": ocr,
-        "stages": {
-            "input":   f"{base}/input/{sample_id}",
-            "back":    f"{base}/back/{sample_id}",
-            "text_en": f"{base}/text_en/{sample_id}",
-            "text_vi": f"{base}/text_vi/{sample_id}",
-            "fuse":    f"{base}/fuse/{sample_id}",
-        },
-    }
-
-@app.get("/api/images/{stage}/{sample_id}")
-async def get_image(stage: str, sample_id: str, download: bool = False):
-    """Serve a pipeline-stage image with cache headers."""
-    if stage not in PATHS:
-        raise HTTPException(400, f"Unknown stage: {stage}")
-
-    # Check if sample_id is a UUID (live uploaded image)
-    if "-" in sample_id or len(sample_id) > 10:
-        img_path = LIVE_DIR / sample_id / f"{stage}.jpg"
-    else:
-        img_path = PATHS[stage] / f"{sample_id}.jpg"
-        
-    if not img_path.exists():
-        raise HTTPException(404, f"Image not found: {stage}/{sample_id}")
-
-    headers = {
-        "Cache-Control": "public, max-age=86400, immutable",
-        "X-Pipeline-Stage": stage,
-        "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Headers": "*",
-        "Access-Control-Allow-Methods": "*",
-    }
-    
-    if download:
-        headers["Content-Disposition"] = f'attachment; filename="{stage}_{sample_id}.jpg"'
-
-    return FileResponse(
-        img_path,
-        media_type="image/jpeg",
-        headers=headers,
-    )
-
-
-@app.get("/api/download/{stage}/{sample_id}")
-async def download_image(
-    stage: str,
-    sample_id: str,
-    filename: str = Query("translated_image", description="Download filename (without extension)"),
-    format: str = Query("jpg", description="Image format: jpg, png, or webp"),
-):
-    """Download a pipeline-stage image with custom filename and format conversion."""
-    if stage not in PATHS:
-        raise HTTPException(400, f"Unknown stage: {stage}")
-
-    fmt = format.lower().strip()
-    if fmt not in ("jpg", "jpeg", "png", "webp"):
-        raise HTTPException(400, f"Unsupported format: {format}. Use jpg, png, or webp.")
-
-    # Resolve source image path
-    if "-" in sample_id or len(sample_id) > 10:
-        img_path = LIVE_DIR / sample_id / f"{stage}.jpg"
-    else:
-        img_path = PATHS[stage] / f"{sample_id}.jpg"
-
-    if not img_path.exists():
-        raise HTTPException(404, f"Image not found: {stage}/{sample_id}")
-
-    # Normalize format
-    if fmt == "jpeg":
-        fmt = "jpg"
-
-    # Map format to PIL format name and MIME type
-    fmt_map = {
-        "jpg":  ("JPEG", "image/jpeg",  "jpg"),
-        "png":  ("PNG",  "image/png",   "png"),
-        "webp": ("WEBP", "image/webp",  "webp"),
-    }
-    pil_fmt, mime_type, ext = fmt_map[fmt]
-
-    # Sanitize filename
-    safe_name = "".join(c for c in filename if c.isalnum() or c in (' ', '-', '_', '.')).strip()
-    if not safe_name:
-        safe_name = "translated_image"
-
-    # Convert image to requested format
+def _read_json(path: Path) -> dict[str, Any]:
     try:
-        img = Image.open(img_path).convert("RGB")
-        buf = io.BytesIO()
-        save_kwargs = {}
-        if pil_fmt == "JPEG":
-            save_kwargs["quality"] = 95
-        elif pil_fmt == "WEBP":
-            save_kwargs["quality"] = 90
-        img.save(buf, pil_fmt, **save_kwargs)
-        buf.seek(0)
-    except Exception as e:
-        raise HTTPException(500, f"Image conversion failed: {e}")
-
-    from fastapi.responses import StreamingResponse
-    headers = {
-        "Content-Disposition": f'attachment; filename="{safe_name}.{ext}"',
-        "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Headers": "*",
-        "Access-Control-Allow-Methods": "*",
-    }
-    return StreamingResponse(buf, media_type=mime_type, headers=headers)
+        return json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Job not found") from None
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=500, detail=f"Cached job is invalid: {exc}") from exc
 
 
-@app.get("/api/images/thumb/{stage}/{sample_id}")
-async def get_thumbnail(stage: str, sample_id: str):
-    """Serve a 256px-wide thumbnail (generated on demand, cached)."""
-    if stage not in PATHS:
-        raise HTTPException(400, f"Unknown stage: {stage}")
-
-    # Allow live UUID handling for thumbnails too
-    if "-" in sample_id or len(sample_id) > 10:
-        src_path = LIVE_DIR / sample_id / f"{stage}.jpg"
-    else:
-        src_path = PATHS[stage] / f"{sample_id}.jpg"
-        
-    if not src_path.exists():
-        raise HTTPException(404, f"Image not found: {stage}/{sample_id}")
-
-    thumb_path = THUMB_DIR / stage / f"{sample_id}.jpg"
-    if not thumb_path.exists():
-        thumb_path.parent.mkdir(parents=True, exist_ok=True)
-        try:
-            img = Image.open(src_path)
-            ratio = 256 / img.width
-            new_size = (256, max(1, int(img.height * ratio)))
-            img = img.resize(new_size, Image.LANCZOS)
-            img.save(thumb_path, "JPEG", quality=80)
-        except Exception as e:
-            raise HTTPException(500, f"Thumbnail generation failed: {e}")
-
-    return FileResponse(
-        thumb_path,
-        media_type="image/jpeg",
-        headers={
-            "Cache-Control": "public, max-age=604800, immutable",
-            "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Headers": "*",
-            "Access-Control-Allow-Methods": "*",
-        },
+def _write_job(record: dict[str, Any]) -> None:
+    _job_path(record["job_id"]).write_text(
+        json.dumps(record, ensure_ascii=False, indent=2),
+        encoding="utf-8",
     )
+
+
+def _parse_time(raw: str | None) -> datetime | None:
+    if not raw:
+        return None
+    try:
+        return datetime.fromisoformat(raw)
+    except ValueError:
+        return None
+
+
+def _elapsed_ms(worker_job: dict[str, Any], fallback_ms: int | None) -> int | None:
+    started_at = _parse_time(worker_job.get("started_at"))
+    finished_at = _parse_time(worker_job.get("finished_at"))
+    if started_at and finished_at:
+        return int((finished_at - started_at).total_seconds() * 1000)
+    return fallback_ms
+
+
+def _join_region_text(regions: list[dict[str, Any]], key: str) -> str:
+    lines = [str(region.get(key, "")).strip() for region in regions]
+    return "\n".join(line for line in lines if line)
+
+
+def _average_confidence(regions: list[dict[str, Any]]) -> float | None:
+    values = [
+        float(region["detector_confidence"])
+        for region in regions
+        if isinstance(region.get("detector_confidence"), (int, float))
+    ]
+    if not values:
+        return None
+    return sum(values) / len(values)
+
+
+def _stage_paths(job_id: str) -> dict[str, str]:
+    return {
+        "input": f"/api/images/input/{job_id}",
+        "result": f"/api/images/result/{job_id}",
+        "mask": f"/api/images/mask/{job_id}",
+        "metadata": f"/api/images/metadata/{job_id}",
+        # Backward-compatible aliases for the current FE editor/history code.
+        "fuse": f"/api/images/result/{job_id}",
+        "text_vi": f"/api/images/result/{job_id}",
+        "back": f"/api/images/mask/{job_id}",
+        "text_en": f"/api/images/input/{job_id}",
+    }
+
+
+def _normalize_worker_job(worker_job: dict[str, Any], fallback_ms: int | None = None) -> dict[str, Any]:
+    job_id = str(worker_job.get("job_id") or "")
+    if not job_id:
+        raise HTTPException(status_code=502, detail="Worker response does not include job_id")
+
+    result = worker_job.get("result") or {}
+    regions = result.get("regions") or []
+    if not isinstance(regions, list):
+        regions = []
+
+    ocr_text = _join_region_text(regions, "ocr_text")
+    translated_text = _join_region_text(regions, "translation")
+    latency_ms = _elapsed_ms(worker_job, fallback_ms)
+
+    return {
+        "id": job_id,
+        "job_id": job_id,
+        "matched_id": job_id,
+        "status": worker_job.get("status", "unknown"),
+        "mode": worker_job.get("mode", "sync"),
+        "match_quality": "live_inference",
+        "created_at": worker_job.get("created_at"),
+        "started_at": worker_job.get("started_at"),
+        "finished_at": worker_job.get("finished_at"),
+        "latency_ms": latency_ms,
+        "latency_seconds": round(latency_ms / 1000, 3) if latency_ms is not None else None,
+        "num_regions": int(result.get("num_regions") or len(regions)),
+        "avg_confidence": _average_confidence(regions),
+        "ocr": ocr_text,
+        "tit": translated_text,
+        "regions": regions,
+        "stages": _stage_paths(job_id),
+        "worker": {
+            "base_url": WORKER_URL,
+            "input_url": _worker_url(worker_job.get("input_url")),
+            "output_url": _worker_url(result.get("output_url")),
+            "mask_url": _worker_url(result.get("mask_url")),
+            "metadata_url": _worker_url(result.get("metadata_url")),
+            "raw_status_url": _worker_url(f"/jobs/{job_id}"),
+        },
+        "error": worker_job.get("error"),
+    }
+
+
+def _list_cached_jobs() -> list[dict[str, Any]]:
+    jobs = []
+    for path in JOBS_DIR.glob("*.json"):
+        try:
+            jobs.append(_read_json(path))
+        except HTTPException:
+            continue
+    jobs.sort(key=lambda item: item.get("created_at") or item.get("finished_at") or "", reverse=True)
+    return jobs
+
+
+async def _fetch_worker_json(method: str, path: str, **kwargs: Any) -> dict[str, Any]:
+    timeout = httpx.Timeout(WORKER_TIMEOUT)
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        response = await client.request(method, _worker_url(path), **kwargs)
+    if response.status_code >= 400:
+        detail: Any = response.text
+        try:
+            detail = response.json().get("detail", detail)
+        except Exception:
+            pass
+        raise HTTPException(status_code=502, detail=f"DebackX worker failed: {detail}")
+    return response.json()
+
+
+async def _fetch_worker_asset(record: dict[str, Any], stage: str) -> tuple[bytes, str]:
+    stage_map = {
+        "input": "input_url",
+        "result": "output_url",
+        "fuse": "output_url",
+        "text_vi": "output_url",
+        "mask": "mask_url",
+        "back": "mask_url",
+        "metadata": "metadata_url",
+        "text_en": "input_url",
+    }
+    if stage not in stage_map:
+        raise HTTPException(status_code=400, detail=f"Unknown stage: {stage}")
+
+    source_url = record.get("worker", {}).get(stage_map[stage])
+    if not source_url:
+        raise HTTPException(status_code=404, detail=f"Stage is not available: {stage}")
+
+    async with httpx.AsyncClient(timeout=httpx.Timeout(WORKER_TIMEOUT)) as client:
+        response = await client.get(source_url)
+    if response.status_code >= 400:
+        raise HTTPException(status_code=502, detail=f"Could not fetch worker asset: {response.status_code}")
+
+    media_type = response.headers.get("content-type") or "application/octet-stream"
+    return response.content, media_type
 
 
 async def get_optional_user(request: Request):
+    if not auth_ready:
+        return None
+
     authorization = request.headers.get("Authorization")
     scheme, token = get_authorization_scheme_param(authorization)
     if not authorization or scheme.lower() != "bearer":
@@ -478,172 +245,246 @@ async def get_optional_user(request: Request):
     try:
         payload = decode_token(token)
         email = payload.get("sub")
-        if not email: return None
+        if not email:
+            return None
         db = get_db()
-        user = await db.users.find_one({"email": email})
-        return user
+        return await db.users.find_one({"email": email})
     except Exception:
         return None
 
 
-@app.post("/api/upload")
-async def upload_and_match(request: Request, file: UploadFile = File(...)):
-    """
-    Accept an uploaded image, save it securely, and sequence it 
-    through the live Pytorch pipeline. Queues execution if busy.
-    """
-    if not file.content_type or not file.content_type.startswith("image/"):
-        raise HTTPException(400, "File must be an image")
-
-    contents = await file.read()
-    if len(contents) > 10 * 1024 * 1024:
-        raise HTTPException(400, "File too large (max 10MB)")
-
-    uid = str(uuid.uuid4())
-    out_dir = LIVE_DIR / uid
-    out_dir.mkdir(parents=True, exist_ok=True)
-
-    input_path = out_dir / "input.jpg"
-
-    try:
-        # Pre-process uploaded bytes and save as safe JPG
-        img = Image.open(io.BytesIO(contents)).convert("RGB")
-        img.save(input_path, "JPEG", quality=95)
-    except Exception as e:
-        raise HTTPException(400, f"Cannot process image: {e}")
-
-    # ═══════════════════════════════════════════════════════════════════════════
-    # MOCK MODE - Kiểm tra xem ảnh upload có khớp với mockdata/En không
-    # ĐỂ XÓA: xóa block này và bỏ comment phần real pipeline bên dưới
-    # ═══════════════════════════════════════════════════════════════════════════
-    mock_stem = _find_mock_match(contents)
-    if mock_stem is not None:
-        import shutil
-
-        # Giả lập thời gian xử lý pipeline
-        delay = random.uniform(*MOCK_DELAY_SECONDS)
-        print(f"[MockMode] Simulating {delay:.1f}s processing delay...")
-        await asyncio.sleep(delay)
-
-        # Copy ảnh từ mockdata vào live dir để serve qua /api/images
-        mock_en_img = MOCK_EN_DIR / f"{mock_stem}.jpg"
-        mock_vi_img = MOCK_VI_DIR / f"{mock_stem}.jpg"
-
-        # input = ảnh gốc (đã lưu), back/text_en = ảnh en, text_vi/fuse = ảnh vi
-        shutil.copy2(mock_en_img, out_dir / "back.jpg")
-        shutil.copy2(mock_en_img, out_dir / "text_en.jpg")
-        shutil.copy2(mock_vi_img, out_dir / "text_vi.jpg")
-        shutil.copy2(mock_vi_img, out_dir / "fuse.jpg")
-
-        tit_path = out_dir / "tit.txt"
-        # Đọc file .txt tương ứng trong mockdata/Vi/ nếu có
-        mock_txt_path = MOCK_VI_DIR / f"{mock_stem}.txt"
-        if mock_txt_path.exists():
-            tit = mock_txt_path.read_text(encoding="utf-8").strip()
-        else:
-            tit = ""  # Để trống — user có thể tự nhập trên FE
-        tit_path.write_text(tit, encoding="utf-8")
-
-        base = "/api/images"
-        stages = {
-            "input":   f"{base}/input/{uid}",
-            "back":    f"{base}/back/{uid}",
-            "text_en": f"{base}/text_en/{uid}",
-            "text_vi": f"{base}/text_vi/{uid}",
-            "fuse":    f"{base}/fuse/{uid}",
-        }
-
-        user = await get_optional_user(request)
-        if user:
-            db = get_db()
-            await db.histories.insert_one({
-                "user_email": user["email"],
-                "sample_id": uid,
-                "tit": tit,
-                "ocr": "",
-                "stages": stages,
-                "created_at": datetime.now(timezone.utc)
-            })
-
-        return {
-            "matched_id": uid,
-            "match_quality": "mock",
-            "hamming_distance": 0,
-            "tit": tit,
-            "ocr": "",
-            "stages": stages,
-        }
-    # ═══════════════════════════════════════════════════════════════════════════
-    # END MOCK MODE
-    # ═══════════════════════════════════════════════════════════════════════════
-
-    if not dbx_pipeline:
-        raise HTTPException(500, "Inference pipeline is not configured on this server")
-
-    # Use a lock to ensure only 1 inference runs on the GPU/MPS simultaneously
-    # to avoid Out-Of-Memory errors under multi-user concurrency.
-    async with inference_lock:
-        try:
-            tit = await asyncio.to_thread(
-                dbx_pipeline.run_inference, str(input_path), str(out_dir)
-            )
-        except Exception as e:
-            import traceback
-            print("[Error] Inference pipeline crashed during run_inference:")
-            traceback.print_exc()
-            raise HTTPException(500, f"Inference pipeline failed: {e}")
-
-    base = "/api/images"
-    stages = {
-        "input":   f"{base}/input/{uid}",
-        "back":    f"{base}/back/{uid}",
-        "text_en": f"{base}/text_en/{uid}",
-        "text_vi": f"{base}/text_vi/{uid}",
-        "fuse":    f"{base}/fuse/{uid}",
-    }
-
+async def _save_history(request: Request, record: dict[str, Any]) -> None:
     user = await get_optional_user(request)
-    if user:
-        db = get_db()
-        await db.histories.insert_one({
+    if not user:
+        return
+    db = get_db()
+    await db.histories.insert_one(
+        {
             "user_email": user["email"],
-            "sample_id": uid,
-            "tit": tit,
-            "ocr": "",
-            "stages": stages,
-            "created_at": datetime.now(timezone.utc)
-        })
+            "job_id": record["job_id"],
+            "tit": record.get("tit", ""),
+            "ocr": record.get("ocr", ""),
+            "stages": record.get("stages", {}),
+            "created_at": datetime.now(timezone.utc),
+        }
+    )
+
+
+@app.on_event("startup")
+async def startup():
+    global auth_ready
+    if not AUTH_ENABLED:
+        return
+    try:
+        await init_mongo()
+        auth_ready = True
+    except Exception as exc:
+        auth_ready = False
+        print(f"[Auth] MongoDB is not ready, auth/history disabled: {exc}")
+
+
+@app.on_event("shutdown")
+async def shutdown():
+    if auth_ready:
+        await close_mongo()
+
+
+@app.get("/api/health")
+async def health() -> dict[str, Any]:
+    try:
+        worker = await _fetch_worker_json("GET", "/health")
+        worker_status = "ok"
+    except Exception as exc:
+        worker = {"status": "unreachable", "detail": str(exc)}
+        worker_status = "unreachable"
 
     return {
-        "matched_id": uid,
-        "match_quality": "live_inference",
-        "hamming_distance": 0,
-        "tit": tit,
-        "ocr": "",  # OCR skipped for live inputs
-        "stages": stages,
+        "status": "ok" if worker_status == "ok" else "degraded",
+        "service": "vietrans-gateway",
+        "worker_url": WORKER_URL,
+        "worker_status": worker_status,
+        "worker": worker,
+        "auth_ready": auth_ready,
+        "cached_jobs": len(_list_cached_jobs()),
+        "total_samples": len(_list_cached_jobs()),
     }
+
+
+@app.get("/api/pipeline-info")
+async def pipeline_info() -> dict[str, Any]:
+    cached_jobs = len(_list_cached_jobs())
+    return {
+        "name": "VieTrans + DebackX",
+        "total_samples": cached_jobs,
+        "source_language": "English",
+        "target_language": "Vietnamese",
+        "worker_url": WORKER_URL,
+        "stages": [
+            {"key": "ocr", "name": "OCR", "name_en": "PaddleOCR PP-OCRv5 detection and recognition"},
+            {"key": "translate", "name": "Dich may", "name_en": "Fine-tuned NLLB 1.3B EN-VI translation"},
+            {"key": "inpaint", "name": "Xoa chu cu", "name_en": "OpenCV text-mask inpainting"},
+            {"key": "render", "name": "Ve chu dich", "name_en": "Adaptive Vietnamese text rendering"},
+        ],
+        "models": {
+            "ocr_detection": {"name": "PP-OCRv5_server_det", "source": "PaddleOCR pretrained"},
+            "ocr_recognition": {"name": "en_PP-OCRv5_mobile_rec", "source": "PaddleOCR pretrained"},
+            "translation": {
+                "name": "facebook/nllb-200-1.3B fine-tuned EN-VI",
+                "checkpoint": "configured in DebackX worker",
+            },
+            "renderer": {"name": "DebackX adaptive renderer", "font": "DejaVu Sans fallback"},
+        },
+        "measured_metrics": {
+            "status": "not_reported_in_gateway",
+            "note": "Add BLEU, chrF, OCR CER/WER, latency, RAM/VRAM, throughput, and end-to-end quality after running the official DebackX evaluation.",
+        },
+    }
+
+
+@app.post("/api/upload")
+async def upload_image(request: Request, file: UploadFile = File(...)) -> dict[str, Any]:
+    if not file.content_type or not file.content_type.startswith("image/"):
+        raise HTTPException(status_code=400, detail="File must be an image")
+
+    contents = await file.read()
+    if len(contents) > MAX_UPLOAD_BYTES:
+        max_mb = MAX_UPLOAD_BYTES // (1024 * 1024)
+        raise HTTPException(status_code=413, detail=f"File too large. Max upload is {max_mb}MB")
+
+    filename = file.filename or "upload.png"
+    files = {"file": (filename, contents, file.content_type)}
+    started = time.perf_counter()
+    worker_job = await _fetch_worker_json("POST", "/translate", files=files)
+    fallback_ms = int((time.perf_counter() - started) * 1000)
+
+    if worker_job.get("status") != "succeeded":
+        error = worker_job.get("error") or {"message": "Unknown worker failure"}
+        raise HTTPException(status_code=502, detail=f"DebackX worker job failed: {error}")
+
+    normalized = _normalize_worker_job(worker_job, fallback_ms=fallback_ms)
+    _write_job(normalized)
+    await _save_history(request, normalized)
+    return normalized
+
+
+@app.get("/api/jobs")
+async def list_jobs(page: int = Query(1, ge=1), limit: int = Query(12, ge=1, le=100)) -> dict[str, Any]:
+    jobs = _list_cached_jobs()
+    total = len(jobs)
+    start = (page - 1) * limit
+    end = min(start + limit, total)
+    return {
+        "page": page,
+        "limit": limit,
+        "total": total,
+        "total_pages": (total + limit - 1) // limit,
+        "jobs": jobs[start:end],
+    }
+
+
+@app.get("/api/jobs/{job_id}")
+async def get_job(job_id: str) -> dict[str, Any]:
+    return _read_json(_job_path(job_id))
+
+
+@app.get("/api/images/{stage}/{job_id}")
+async def get_image(stage: str, job_id: str, download: bool = False) -> Response:
+    record = _read_json(_job_path(job_id))
+    content, media_type = await _fetch_worker_asset(record, stage)
+
+    if stage == "metadata":
+        return JSONResponse(json.loads(content.decode("utf-8")))
+
+    headers = {
+        "Cache-Control": "private, max-age=300",
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Headers": "*",
+        "Access-Control-Allow-Methods": "*",
+    }
+    if download:
+        headers["Content-Disposition"] = f'attachment; filename="{stage}_{job_id}.png"'
+    return Response(content=content, media_type=media_type, headers=headers)
+
+
+@app.get("/api/images/thumb/{stage}/{job_id}")
+async def get_thumbnail(stage: str, job_id: str):
+    record = _read_json(_job_path(job_id))
+    content, _media_type = await _fetch_worker_asset(record, stage)
+    try:
+        img = Image.open(io.BytesIO(content)).convert("RGB")
+        ratio = 256 / max(1, img.width)
+        img = img.resize((256, max(1, int(img.height * ratio))), Image.LANCZOS)
+        buf = io.BytesIO()
+        img.save(buf, "JPEG", quality=82)
+        buf.seek(0)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Thumbnail generation failed: {exc}") from exc
+
+    return Response(
+        content=buf.getvalue(),
+        media_type="image/jpeg",
+        headers={"Cache-Control": "private, max-age=300"},
+    )
+
+
+@app.get("/api/download/{stage}/{job_id}")
+async def download_image(
+    stage: str,
+    job_id: str,
+    filename: str = Query("translated_image", description="Download filename without extension"),
+    format: str = Query("png", description="Image format: jpg, png, or webp"),
+):
+    fmt = format.lower().strip()
+    if fmt not in {"jpg", "jpeg", "png", "webp"}:
+        raise HTTPException(status_code=400, detail="Unsupported format. Use jpg, png, or webp.")
+    if fmt == "jpeg":
+        fmt = "jpg"
+
+    record = _read_json(_job_path(job_id))
+    content, _media_type = await _fetch_worker_asset(record, stage)
+
+    fmt_map = {
+        "jpg": ("JPEG", "image/jpeg", "jpg"),
+        "png": ("PNG", "image/png", "png"),
+        "webp": ("WEBP", "image/webp", "webp"),
+    }
+    pil_fmt, mime_type, ext = fmt_map[fmt]
+
+    safe_name = "".join(c for c in filename if c.isalnum() or c in (" ", "-", "_", ".")).strip()
+    if not safe_name:
+        safe_name = "translated_image"
+
+    try:
+        img = Image.open(io.BytesIO(content)).convert("RGB")
+        buf = io.BytesIO()
+        save_kwargs = {"quality": 95} if pil_fmt in {"JPEG", "WEBP"} else {}
+        img.save(buf, pil_fmt, **save_kwargs)
+        buf.seek(0)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Image conversion failed: {exc}") from exc
+
+    headers = {"Content-Disposition": f'attachment; filename="{safe_name}.{ext}"'}
+    return StreamingResponse(buf, media_type=mime_type, headers=headers)
+
 
 class UpdateFuseRequest(BaseModel):
     image_data: str
 
-@app.post("/api/update-fuse/{sample_id}")
-async def update_fuse(sample_id: str, req: UpdateFuseRequest):
-    if "-" not in sample_id and len(sample_id) <= 10:
-        raise HTTPException(400, "Can only update live samples")
-    
-    fuse_path = LIVE_DIR / sample_id / "fuse.jpg"
-    if not fuse_path.exists():
-        raise HTTPException(404, "Sample not found")
 
-    import base64
+@app.post("/api/update-fuse/{job_id}")
+async def update_fuse(job_id: str, req: UpdateFuseRequest):
+    record = _read_json(_job_path(job_id))
     try:
-        header, encoded = req.image_data.split(",", 1)
-        data = base64.b64decode(encoded)
-        img = Image.open(io.BytesIO(data)).convert("RGB")
-        img.save(fuse_path, "JPEG", quality=95)
-    except Exception as e:
-        raise HTTPException(400, f"Invalid image data: {e}")
-    
+        _header, encoded = req.image_data.split(",", 1)
+        base64.b64decode(encoded)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid image data: {exc}") from exc
+
+    # The edited image is kept client-side for the current session. Persisting it
+    # back into the DebackX worker is intentionally not supported by the worker API.
+    record["edited_locally"] = True
+    record["updated_at"] = datetime.now(timezone.utc).isoformat()
+    _write_job(record)
     return {"status": "ok"}
 
 
@@ -654,13 +495,13 @@ async def get_history(
     user=Depends(get_current_user),
 ):
     db = get_db()
-    query = {"user_email": user["email"]}
+    query: dict[str, Any] = {"user_email": user["email"]}
 
     if date:
         try:
             local_day = datetime.strptime(date, "%Y-%m-%d")
         except ValueError:
-            raise HTTPException(400, "Invalid date format. Use YYYY-MM-DD")
+            raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
 
         utc_start = (local_day + timedelta(minutes=tz_offset_minutes)).replace(tzinfo=timezone.utc)
         utc_end = utc_start + timedelta(days=1)
@@ -669,29 +510,27 @@ async def get_history(
     cursor = db.histories.find(query).sort("created_at", -1)
     histories = []
     async for doc in cursor:
-        histories.append({
-            "id": doc["sample_id"],
-            "tit": doc.get("tit", ""),
-            "ocr": doc.get("ocr", ""),
-            "stages": doc.get("stages", {}),
-            "created_at": doc["created_at"].isoformat()
-        })
+        histories.append(
+            {
+                "id": doc.get("job_id") or doc.get("sample_id"),
+                "tit": doc.get("tit", ""),
+                "ocr": doc.get("ocr", ""),
+                "stages": doc.get("stages", {}),
+                "created_at": doc["created_at"].isoformat(),
+            }
+        )
     return {"histories": histories}
 
 
-@app.delete("/api/history/{sample_id}")
-async def delete_history(sample_id: str, user=Depends(get_current_user)):
+@app.delete("/api/history/{job_id}")
+async def delete_history(job_id: str, user=Depends(get_current_user)):
     db = get_db()
-    result = await db.histories.delete_one({"user_email": user["email"], "sample_id": sample_id})
+    result = await db.histories.delete_one(
+        {
+            "user_email": user["email"],
+            "$or": [{"job_id": job_id}, {"sample_id": job_id}],
+        }
+    )
     if result.deleted_count == 0:
-        raise HTTPException(404, "History not found")
+        raise HTTPException(status_code=404, detail="History not found")
     return {"status": "ok"}
-
-
-@app.get("/api/random")
-async def random_sample():
-    """Return a random sample for demo purposes."""
-    if not _sample_ids:
-        raise HTTPException(500, "No samples available")
-    sid = random.choice(_sample_ids)
-    return await get_sample(str(sid))

@@ -13,7 +13,7 @@ export const Footer: React.FC = () => {
             </div>
           </div>
           <p className="docs-p" style={{ maxWidth: '280px', marginTop: '14px' }}>
-            The only in-image translation engine designed for complex visual context and background reconstruction.
+            A web gateway for DebackX image translation: upload, translate, review, and download Vietnamese results.
           </p>
         </div>
 
@@ -27,27 +27,27 @@ export const Footer: React.FC = () => {
 
         <div className="ft-col">
           <h5>Resources</h5>
-          <a href="#">Status Page</a>
-          <a href="#">Changelog</a>
-          <a href="#">Community</a>
-          <a href="#">Support</a>
+          <Link to="/docs">Gateway API</Link>
+          <Link to="/account/information">Project Information</Link>
+          <Link to="/dashboard">Translation History</Link>
+          <Link to="/studio">Batch Studio</Link>
         </div>
 
         <div className="ft-col">
-          <h5>Legal</h5>
-          <a href="#">Terms of Service</a>
-          <a href="#">Privacy Policy</a>
-          <a href="#">SOC 2 Compliance</a>
-          <a href="#">ISO 27001</a>
+          <h5>Runtime</h5>
+          <a href="#">FastAPI Gateway</a>
+          <a href="#">DebackX Worker</a>
+          <a href="#">PaddleOCR</a>
+          <a href="#">NLLB 1.3B</a>
         </div>
       </div>
 
       <div className="ft-bot">
         <div className="ft-copy">© 2026 VieTrans Engine. All rights reserved. Made in Vietnam.</div>
         <div className="ft-links">
-          <a href="#">Twitter</a>
-          <a href="#">GitHub</a>
-          <a href="#">Discord</a>
+          <Link to="/docs">Docs</Link>
+          <Link to="/studio">Studio</Link>
+          <Link to="/dashboard">Dashboard</Link>
         </div>
       </div>
     </footer>
