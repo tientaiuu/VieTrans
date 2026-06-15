@@ -160,6 +160,23 @@ export const HomePage: React.FC = () => {
   const [archRows, setArchRows] = useState(DEFAULT_ARCH);
   const [loading,  setLoading]  = useState(true);
 
+  const [sliderVal, setSliderVal] = useState<number>(50);
+  const [isHovered, setIsHovered] = useState<boolean>(false);
+  const timeRef = useRef<number>(0);
+
+  useEffect(() => {
+    if (isHovered) return;
+    let frameId: number;
+    const animate = () => {
+      timeRef.current += 0.010;
+      const val = 50 + Math.sin(timeRef.current) * 30;
+      setSliderVal(Math.round(val));
+      frameId = requestAnimationFrame(animate);
+    };
+    frameId = requestAnimationFrame(animate);
+    return () => cancelAnimationFrame(frameId);
+  }, [isHovered]);
+
   const { ref: numRef,  visible: numVisible  } = useInView(0.25);
   const { ref: procRef, visible: procVisible } = useInView(0.1);
   const { ref: archRef, visible: archVisible } = useInView(0.1);
@@ -225,17 +242,10 @@ export const HomePage: React.FC = () => {
 
         /* Cap card glow on hover */
         .cap-card-enhanced {
-          transition: background 0.25s, box-shadow 0.3s, transform 0.25s !important;
+          transition: background 0.2s, opacity 0.4s, transform 0.4s !important;
         }
         .cap-card-enhanced:hover {
           background: var(--blueG) !important;
-          box-shadow: inset 0 0 0 1px var(--blue), 0 8px 32px rgba(0,0,0,0.1) !important;
-          transform: translateY(-2px) !important;
-        }
-        .cap-card-enhanced:hover .cc-n {
-          color: var(--blue) !important;
-          letter-spacing: 0.22em !important;
-          transition: letter-spacing 0.3s;
         }
 
         /* Pipe step enhanced */
@@ -304,83 +314,179 @@ export const HomePage: React.FC = () => {
       `}</style>
 
       {/* ═══════════════ HERO ═══════════════ */}
-      <section className="hero" style={{ position:'relative', overflow:'hidden' }}>
-        {/* Grid */}
-        <div className="hgrid"></div>
-
-        {/* Ambient orbs — subtle blue glow behind ghost text */}
-        <div className="hp-orb" style={{
-          width:'600px', height:'600px',
-          background:'var(--blue)',
-          opacity:0.04,
-          right:'-120px', bottom:'-180px',
-          animationDelay:'0s',
-        }}/>
-        <div className="hp-orb" style={{
-          width:'300px', height:'300px',
-          background:'var(--blue)',
-          opacity:0.035,
-          right:'38%', top:'20%',
-          animationDelay:'2s',
-        }}/>
-
-        {/* Ghost lettermark */}
+      <section className="hero hero-v2">
+        <div className="hgrid" />
         <div className="h-ghost">VT</div>
 
-        <div className="hero-inner">
-          {/* Topbar */}
-          <div className="h-topbar" style={{ animation:'hp-fadeup 0.6s cubic-bezier(0.22,1,0.36,1) both' }}>
+        <div className="hero-inner hero-inner-v2">
+
+          {/* TOP BAR */}
+          <div className="hv2-topbar">
             <span className="h-eyebrow">AI-Powered In-Image Translation</span>
-            <span className="h-meta">v2.4 · Made in Vietnam<br />DeBackX E2E Architecture</span>
-          </div>
-
-          {/* Display */}
-          <div className="hero-display">
-            {/* Label */}
-            <div className="hd-label" style={{ animation:'hp-fadeup 0.55s 0.08s cubic-bezier(0.22,1,0.36,1) both' }}>
-              01 — In-Image Translation Engine
-            </div>
-
-            {/* Headline */}
-            <h1 className="hd-headline" style={{ margin:0 }}>
-              <span
-                className="hd-word hd-w1"
-                style={{ animation:'hp-fadeup 0.7s 0.12s cubic-bezier(0.22,1,0.36,1) both' }}
-              >
-                TRANS
-              </span>
-              <span
-                className="hd-word hd-w2"
-                style={{ animation:'hp-fadeup 0.7s 0.22s cubic-bezier(0.22,1,0.36,1) both' }}
-              >
-                LATE<span className="hd-dot">.</span>
-              </span>
-            </h1>
-
-            {/* Sub row */}
-            <div className="hd-sub">
-              <div className="hd-tagline" style={{ animation:'hp-fadeup 0.6s 0.3s cubic-bezier(0.22,1,0.36,1) both' }}>
-                <div className="hd-tl1">Every image,<br />every language.</div>
-                <div className="hd-tl2">— instantly, with AI</div>
-              </div>
-              <div className="hd-sep"></div>
-              <div className="hd-desc-col" style={{ animation:'hp-fadeup 0.6s 0.38s cubic-bezier(0.22,1,0.36,1) both' }}>
-                <p className="hd-desc">
-                  VieTrans uses the DeBackX end-to-end model to separate text, translate visual
-                  features using discrete visual codes, and fuse the results back seamlessly in a single pipeline.
-                </p>
-                <div className="hd-ctas">
-                  <Link to="/studio" className="btn-primary">Open Studio →</Link>
-                  <Link to="/docs"   className="btn-secondary">API Docs</Link>
-                </div>
-                <div className="hd-pills">
-                  {['Separate','Codebook','Translate','Fuse'].map((p,i) => (
-                    <span key={p} className="hd-pill" style={{ animationDelay:`${0.42 + i*0.07}s`, animation:'hp-fadeup 0.4s cubic-bezier(0.22,1,0.36,1) both' }}>{p}</span>
-                  ))}
-                </div>
-              </div>
+            <div className="hv2-topbar-right">
+              <span className="hv2-tick">v3.6 · Made in Vietnam</span>
             </div>
           </div>
+
+          {/* MAIN 2-COL */}
+          <div className="hv2-main">
+
+            {/* LEFT */}
+            <div className="hv2-left">
+              <div className="hv2-lang-pair">
+                <span className="hv2-lang-en">EN</span>
+                <span className="hv2-lang-arrow">→</span>
+                <span className="hv2-lang-vi">VI</span>
+              </div>
+
+              <h1 className="hv2-headline">
+                <span className="hv2-h-line1">TRANSLATE</span>
+                <span className="hv2-h-line2">
+                  EVERY
+                  <em className="hv2-h-italic"> IMAGE.</em>
+                </span>
+              </h1>
+
+              {/* Measurement rule — the signature element */}
+              <div className="hv2-rule">
+                <div className="hv2-rule-left-tick" />
+                <div className="hv2-rule-line" />
+                <span className="hv2-rule-label">W: {sliderVal}%</span>
+                <div className="hv2-rule-line" />
+                <div className="hv2-rule-right-tick" />
+              </div>
+
+              <p className="hv2-desc">
+                Detects text, erases it, reconstructs the background, and renders your translation — in a single API call.
+              </p>
+
+              <div className="hv2-ctas">
+                <Link to="/studio" className="btn-primary">Open Studio →</Link>
+                <Link to="/docs" className="btn-secondary">API Docs</Link>
+              </div>
+
+              <div className="hv2-stack">
+                <span className="hv2-stack-label">STACK</span>
+                {['PaddleOCR', 'mBART-50', 'LaMa', 'SOC 2'].map(p => (
+                  <span key={p} className="hd-pill">{p}</span>
+                ))}
+              </div>
+            </div>
+
+            {/* RIGHT */}
+            <div className="hv2-right">
+              <div className="hv2-annotation hv2-ann-top">
+                <span className="hv2-ann-dot" />
+                <span>LIVE DEMO — DRAG TO COMPARE</span>
+              </div>
+
+              <div
+                className="hd-showcase hv2-showcase"
+                onMouseEnter={() => setIsHovered(true)}
+                onMouseLeave={() => setIsHovered(false)}
+              >
+                <input
+                  type="range" min="0" max="100" value={sliderVal}
+                  onChange={e => setSliderVal(Number(e.target.value))}
+                  className="sc-slider-range"
+                  aria-label="Translation comparison slider"
+                />
+
+                <div className="sc-slider-frame">
+                  <div className="hv2-scanline" />
+                  <div className="sc-float-badge sc-badge-left">Original</div>
+                  <div className="sc-float-badge sc-badge-right">Translated</div>
+
+                  <div className="sc-pane sc-pane-original">
+                    <div className="swiss-poster">
+                      <div className="sp-crop sp-crop-tl">┌</div>
+                      <div className="sp-crop sp-crop-tr">┐</div>
+                      <div className="sp-crop sp-crop-bl">└</div>
+                      <div className="sp-crop sp-crop-br">┘</div>
+                      <div className="sp-guide-box" style={{ top: '22px', left: '64px', right: '64px', height: '14px' }} />
+                      <div className="sp-guide-label" style={{ top: '12px', left: '66px' }}>[LOC_01: EYEBROW]</div>
+                      <div className="sp-guide-box" style={{ top: '96px', left: '50%', transform: 'translateX(-50%)', width: '230px', height: '84px' }} />
+                      <div className="sp-guide-label" style={{ top: '86px', left: 'calc(50% - 115px)' }}>[LOC_02: HEADER]</div>
+                      <div className="sp-meta-top">
+                        <span>Swiss Typography</span><span>Issue #02</span>
+                      </div>
+                      <div className="sp-main-title">
+                        THE ART OF<br /><em>TRANSLATION</em>
+                      </div>
+                      <div className="sp-meta-bottom">
+                        <span>GRID SPEC: 12-COL</span><span>SRC: EN</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div
+                    className="sc-pane sc-pane-translated"
+                    style={{ clipPath: `polygon(${sliderVal}% 0, 100% 0, 100% 100%, ${sliderVal}% 100%)`, width: '100%' }}
+                  >
+                    <div className="swiss-poster">
+                      <div className="sp-crop sp-crop-tl">┌</div>
+                      <div className="sp-crop sp-crop-tr">┐</div>
+                      <div className="sp-crop sp-crop-bl">└</div>
+                      <div className="sp-crop sp-crop-br">┘</div>
+                      <div className="sp-guide-box" style={{ top: '22px', left: '64px', right: '64px', height: '14px' }} />
+                      <div className="sp-guide-label" style={{ top: '12px', left: '66px' }}>[LOC_01: EYEBROW]</div>
+                      <div className="sp-guide-box" style={{ top: '96px', left: '50%', transform: 'translateX(-50%)', width: '230px', height: '84px' }} />
+                      <div className="sp-guide-label" style={{ top: '86px', left: 'calc(50% - 115px)' }}>[LOC_02: HEADER]</div>
+                      <div className="sp-meta-top">
+                        <span>Nghệ thuật chữ</span><span>Số #02</span>
+                      </div>
+                      <div className="sp-main-title">
+                        NGHỆ THUẬT<br /><em>BIÊN DỊCH</em>
+                      </div>
+                      <div className="sp-meta-bottom">
+                        <span>GRID SPEC: 12-COL</span><span>TGT: VI</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="sc-divider-line" style={{ left: `${sliderVal}%` }}>
+                    <div className="sc-divider-handle">↔</div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="hv2-showcase-footer">
+                <span className="hv2-sf-item">
+                  <span className="hv2-sf-dot hv2-sf-dot-en" />EN SOURCE
+                </span>
+                <span className="hv2-sf-divider">·</span>
+                <span className="hv2-sf-item hv2-sf-blue">
+                  <span className="hv2-sf-dot hv2-sf-dot-vi" />VI OUTPUT
+                </span>
+                <span className="hv2-sf-spacer" />
+                <span className="hv2-sf-item">PROC TIME <b>0.9s</b></span>
+              </div>
+            </div>
+          </div>
+
+          {/* STATS BAR */}
+          <div className="hv2-stats">
+            <div className="hv2-stat">
+              <span className="hv2-stat-n">{loading ? '…' : formatCount(stats.totalSamples)}</span>
+              <span className="hv2-stat-l">Requests</span>
+            </div>
+            <div className="hv2-stat-sep" />
+            <div className="hv2-stat">
+              <span className="hv2-stat-n">{stats.accuracy}</span>
+              <span className="hv2-stat-l">Accuracy</span>
+            </div>
+            <div className="hv2-stat-sep" />
+            <div className="hv2-stat">
+              <span className="hv2-stat-n">{stats.latency}</span>
+              <span className="hv2-stat-l">Latency</span>
+            </div>
+            <div className="hv2-stat-sep" />
+            <div className="hv2-stat">
+              <span className="hv2-stat-n">40+</span>
+              <span className="hv2-stat-l">Languages</span>
+            </div>
+          </div>
+
         </div>
 
         {/* Live ticker */}
@@ -444,11 +550,6 @@ export const HomePage: React.FC = () => {
             >
               {/* Connector to next step */}
               {i < PIPE_STEPS.length - 1 && <div className="pipe-step-connector"/>}
-
-              {/* Step icon */}
-              <div className="ps-icon">
-                <Icon d={step.icon} size={22}/>
-              </div>
 
               <div className="ps-n">{step.n}</div>
               <div className="ps-h">{step.h}</div>
@@ -543,10 +644,10 @@ export const HomePage: React.FC = () => {
               style={{
                 opacity: capVisible ? 1 : 0,
                 transform: capVisible ? 'none' : 'translateY(20px)',
-                transition: `opacity 0.5s ${i*0.08}s, transform 0.5s ${i*0.08}s cubic-bezier(0.22,1,0.36,1), background 0.25s, box-shadow 0.3s`,
+                transition: `opacity 0.5s ${i*0.08}s, transform 0.5s ${i*0.08}s cubic-bezier(0.22,1,0.36,1), background 0.2s`,
               }}
             >
-              <div className="cc-n" style={{ transition:'letter-spacing 0.3s' }}>{c.n}</div>
+              <div className="cc-n">{c.n}</div>
               <div className="cc-h">{c.h}</div>
               <div className="cc-p">{c.p}</div>
             </div>

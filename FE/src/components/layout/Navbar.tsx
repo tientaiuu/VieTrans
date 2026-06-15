@@ -10,7 +10,7 @@ import { getHistory, type HistoryItem } from '../../api';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 type NotifAccent = 'green' | 'coral' | 'violet' | 'gold' | 'lavender';
-type NotifType   = 'generated' | 'comment' | 'like' | 'alert' | 'image';
+type NotifType = 'generated' | 'comment' | 'like' | 'alert' | 'image';
 
 interface Notification {
   id: string;
@@ -25,17 +25,17 @@ interface Notification {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function timeAgo(dateStr: string): string {
-  const now  = Date.now();
+  const now = Date.now();
   const then = new Date(dateStr).getTime();
   const diff = Math.max(0, now - then);
   const s = Math.floor(diff / 1000);
-  if (s < 60)           return 'just now';
+  if (s < 60) return 'just now';
   const m = Math.floor(s / 60);
-  if (m < 60)           return `${m}m ago`;
+  if (m < 60) return `${m}m ago`;
   const h = Math.floor(m / 60);
-  if (h < 24)           return `${h}h ago`;
+  if (h < 24) return `${h}h ago`;
   const d = Math.floor(h / 24);
-  if (d < 7)            return `${d}d ago`;
+  if (d < 7) return `${d}d ago`;
   return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
@@ -47,16 +47,16 @@ function accentForIndex(i: number): NotifAccent {
 function historyToNotif(item: HistoryItem, index: number): Notification {
   const hasOcr = !!item.ocr && item.ocr.trim().length > 0;
   return {
-    id:      `hist-${item.id}`,
-    title:   'Translation completed',
-    time:    timeAgo(item.created_at),
+    id: `hist-${item.id}`,
+    title: 'Translation completed',
+    time: timeAgo(item.created_at),
     message: hasOcr
       ? `"${item.ocr.substring(0, 50).trim()}${item.ocr.length > 50 ? '…' : ''}" was translated successfully.`
       : 'Your image was processed and translated successfully.',
-    detail:  'Result saved to your history. You can download it from the Dashboard.',
-    accent:  accentForIndex(index),
-    type:    'image',
-    read:    false,
+    detail: 'Result saved to your history. You can download it from the Dashboard.',
+    accent: accentForIndex(index),
+    type: 'image',
+    read: false,
   };
 }
 
@@ -92,12 +92,12 @@ const GUEST_NOTIFICATIONS: Notification[] = [
 // ─── Icon helpers ─────────────────────────────────────────────────────────────
 const getNotificationIcon = (type: NotifType) => {
   switch (type) {
-    case 'comment':   return <MessageSquare size={12} />;
-    case 'generated': return <Sparkles      size={12} />;
-    case 'like':      return <Heart         size={12} />;
-    case 'alert':     return <AlertCircle   size={12} />;
-    case 'image':     return <ImageIcon     size={12} />;
-    default:          return <Bell          size={12} />;
+    case 'comment': return <MessageSquare size={12} />;
+    case 'generated': return <Sparkles size={12} />;
+    case 'like': return <Heart size={12} />;
+    case 'alert': return <AlertCircle size={12} />;
+    case 'image': return <ImageIcon size={12} />;
+    default: return <Bell size={12} />;
   }
 };
 
@@ -107,15 +107,15 @@ export const Navbar: React.FC = () => {
   const navigate = useNavigate();
 
   const [notificationsOpen, setNotificationsOpen] = React.useState(false);
-  const [accountMenuOpen,   setAccountMenuOpen]   = React.useState(false);
-  const [notifications,     setNotifications]     = React.useState<Notification[]>([]);
-  const [notifsLoading,     setNotifsLoading]     = React.useState(false);
+  const [accountMenuOpen, setAccountMenuOpen] = React.useState(false);
+  const [notifications, setNotifications] = React.useState<Notification[]>([]);
+  const [notifsLoading, setNotifsLoading] = React.useState(false);
 
   const notificationsRef = React.useRef<HTMLDivElement | null>(null);
-  const accountMenuRef   = React.useRef<HTMLDivElement | null>(null);
-  const fetchedRef       = React.useRef(false);
+  const accountMenuRef = React.useRef<HTMLDivElement | null>(null);
+  const fetchedRef = React.useRef(false);
 
-  const displayName  = getFirstName(userFullName, 'User');
+  const displayName = getFirstName(userFullName, 'User');
   const avatarInitial = displayName.trim().charAt(0).toUpperCase() || 'U';
 
   // ── Fetch real notifications from history when panel opens ────────────────
@@ -177,16 +177,16 @@ export const Navbar: React.FC = () => {
     const handlePointerDown = (e: MouseEvent) => {
       const t = e.target as Node;
       if (!notificationsRef.current?.contains(t)) setNotificationsOpen(false);
-      if (!accountMenuRef.current?.contains(t))   setAccountMenuOpen(false);
+      if (!accountMenuRef.current?.contains(t)) setAccountMenuOpen(false);
     };
     const handleEscape = (e: KeyboardEvent) => {
       if (e.key === 'Escape') { setNotificationsOpen(false); setAccountMenuOpen(false); }
     };
     document.addEventListener('mousedown', handlePointerDown);
-    document.addEventListener('keydown',   handleEscape);
+    document.addEventListener('keydown', handleEscape);
     return () => {
       document.removeEventListener('mousedown', handlePointerDown);
-      document.removeEventListener('keydown',   handleEscape);
+      document.removeEventListener('keydown', handleEscape);
     };
   }, [accountMenuOpen, notificationsOpen]);
 
@@ -218,14 +218,13 @@ export const Navbar: React.FC = () => {
       </Link>
 
       <div className="nl">
-        <NavLink to="/"         end className={({ isActive }) => isActive ? 'on' : ''}>Overview</NavLink>
-        <NavLink to="/studio"       className={({ isActive }) => isActive ? 'on' : ''}>Studio</NavLink>
-        <NavLink to="/dashboard"    className={({ isActive }) => isActive ? 'on' : ''}>Dashboard</NavLink>
-        <NavLink to="/docs"         className={({ isActive }) => isActive ? 'on' : ''}>API Docs</NavLink>
+        <NavLink to="/" end className={({ isActive }) => isActive ? 'on' : ''}>Overview</NavLink>
+        <NavLink to="/studio" className={({ isActive }) => isActive ? 'on' : ''}>Studio</NavLink>
+        <NavLink to="/dashboard" className={({ isActive }) => isActive ? 'on' : ''}>Dashboard</NavLink>
+        <NavLink to="/docs" className={({ isActive }) => isActive ? 'on' : ''}>API Docs</NavLink>
       </div>
 
       <div className="nr">
-        <div className="nr-sig">System Operational</div>
 
         {isLoggedIn ? (
           <div className={`account-menu-wrap ${accountMenuOpen ? 'open' : ''}`} ref={accountMenuRef}>
@@ -298,7 +297,7 @@ export const Navbar: React.FC = () => {
             aria-expanded={notificationsOpen}
             onClick={handleNotificationToggle}
           >
-            <Bell size={22} />
+            <Bell size={18} />
             {/* Badge — only show when there are unread items */}
             {(isLoggedIn || notifications.length > 0) && (
               <span className="notification-badge" aria-hidden="true" />
@@ -394,7 +393,7 @@ export const Navbar: React.FC = () => {
           aria-label="Settings"
           onClick={() => navigate('/account/settings')}
         >
-          <Settings size={22} />
+          <Settings size={18} />
         </button>
       </div>
     </nav>
