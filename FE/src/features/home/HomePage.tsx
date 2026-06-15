@@ -146,12 +146,7 @@ const SkeletonNum = () => (
   </div>
 );
 
-// ─── SVG Icon ────────────────────────────────────────────────────────────────
-const Icon: React.FC<{d:string;size?:number;color?:string}> = ({d,size=20,color='currentColor'}) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill={color} style={{flexShrink:0}}>
-    <path d={d}/>
-  </svg>
-);
+
 
 // ─── HomePage ─────────────────────────────────────────────────────────────────
 export const HomePage: React.FC = () => {
