@@ -24,7 +24,7 @@ services:
     ports:
       - "${VIETRANS_GATEWAY_PORT:-8001}:7860"
     environment:
-      MONGO_URI: "${MONGO_URI:?MONGO_URI is required. Use MongoDB Atlas or run with --profile local-mongo and set MONGO_URI=mongodb://mongo:27017}"
+      MONGO_URI: "${MONGO_URI:?MONGO_URI is required. Use MongoDB Atlas connection string}"
       MONGO_DB: "${MONGO_DB:-vietrans}"
       IIMT_WORKER_URL: "${IIMT_WORKER_URL:-http://host.docker.internal:8081}"
       IIMT_WORKER_TIMEOUT_SECONDS: "${IIMT_WORKER_TIMEOUT_SECONDS:-300}"
@@ -34,6 +34,7 @@ services:
       VIETRANS_MAX_UPLOAD_MB: "${VIETRANS_MAX_UPLOAD_MB:-20}"
       VIETRANS_RUNTIME_DIR: "/app/outputs/gateway"
       AUTH_ENABLED: "${AUTH_ENABLED:-true}"
+      FRONTEND_BASE_URL: "${FRONTEND_BASE_URL:-http://localhost:5173}"
       SECRET_KEY: "${SECRET_KEY:-change-this-secret-key}"
       MAIL_USERNAME: "${MAIL_USERNAME:-}"
       MAIL_PASSWORD: "${MAIL_PASSWORD:-}"
@@ -45,23 +46,5 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
-  mongo:
-    profiles:
-      - local-mongo
-    image: mongo:7
-    container_name: vietrans-mongo
-    restart: unless-stopped
-    ports:
-      - "127.0.0.1:${MONGO_PORT:-27017}:27017"
-    volumes:
-      - mongo_data:/data/db
-    healthcheck:
-      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 10s
-
 volumes:
   gateway_outputs:
-  mongo_data:

@@ -22,14 +22,14 @@ cd BE-Models
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-cp server/.env.example server/.env
 ```
 
-Set the worker URL in `server/.env`:
+Set the environment variables in your shell or copy the root `.env.docker.example` to `.env` when using Docker:
 
 ```env
 MONGO_URI=mongodb+srv://<user>:<password>@<cluster-host>/<database>?retryWrites=true&w=majority&appName=<app-name>
 MONGO_DB=vietrans
+FRONTEND_BASE_URL=http://localhost:5173
 IIMT_WORKER_URL=https://debackx-worker.example.com
 IIMT_WORKER_TIMEOUT_SECONDS=300
 IIMT_WORKER_MODE=async
@@ -117,20 +117,6 @@ If you run the backend directly with `uvicorn` on port `8000`, leave `VITE_API_U
 - `GET /api/images/mask/{job_id}`: text mask image.
 - `GET /api/download/result/{job_id}`: download as `jpg`, `png`, or `webp`.
 - `GET /api/history`: authenticated user history.
-
-## Optional Local Mongo Fallback
-
-Atlas is the default path. If you need a throwaway local MongoDB for development, set:
-
-```env
-MONGO_URI=mongodb://mongo:27017
-```
-
-Then start Compose with the local Mongo profile:
-
-```bash
-docker compose --profile local-mongo up -d --build
-```
 
 ## Notes for Graduation Project Reporting
 

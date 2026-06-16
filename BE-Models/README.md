@@ -18,7 +18,6 @@ It does not run the NLLB/PaddleOCR model stack locally. The heavy pipeline lives
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-cp server/.env.example server/.env
 uvicorn server.app:app --host 0.0.0.0 --port 8000 --reload
 ```
 
@@ -27,6 +26,7 @@ Important environment variables:
 ```env
 MONGO_URI=mongodb+srv://<user>:<password>@<cluster-host>/<database>?retryWrites=true&w=majority&appName=<app-name>
 MONGO_DB=vietrans
+FRONTEND_BASE_URL=http://localhost:5173
 IIMT_WORKER_URL=https://debackx-worker.example.com
 IIMT_WORKER_TIMEOUT_SECONDS=300
 IIMT_WORKER_MODE=async
@@ -39,7 +39,7 @@ AUTH_ENABLED=true
 
 ```bash
 docker build -t vietrans-gateway .
-docker run --rm -p 8000:7860 --env-file server/.env vietrans-gateway
+docker run --rm -p 8000:7860 --env-file ../.env vietrans-gateway
 ```
 
 The Docker image installs only gateway dependencies. Deploy DebackX separately on the machine or service that has the model runtime.

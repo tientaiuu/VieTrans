@@ -39,6 +39,7 @@ def _database_from_uri(uri: str | None) -> str | None:
 
 MONGO_DB = os.getenv("MONGO_DB") or _database_from_uri(MONGO_URI) or "vietrans"
 MONGO_CONNECT_TIMEOUT_MS = int(os.getenv("MONGO_CONNECT_TIMEOUT_MS", "10000"))
+FRONTEND_BASE_URL = os.getenv("FRONTEND_BASE_URL", "http://localhost:5173").rstrip("/")
 SECRET_KEY = os.getenv("SECRET_KEY", secrets.token_urlsafe(64))
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
@@ -284,7 +285,7 @@ async def forgot_password(req: ForgotPasswordRequest):
 
     reset_token = secrets.token_urlsafe(32)
 
-    reset_url = f"https://vietrans-projects.netlify.app/reset-password?token={reset_token}"
+    reset_url = f"{FRONTEND_BASE_URL}/reset-password?token={reset_token}"
     html = f"""
     <p>Hi,</p>
     <p>We received a request to reset your VieTrans password.</p>

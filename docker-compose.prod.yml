@@ -34,6 +34,7 @@ services:
       VIETRANS_MAX_UPLOAD_MB: "${VIETRANS_MAX_UPLOAD_MB:-20}"
       VIETRANS_RUNTIME_DIR: "/app/outputs/gateway"
       AUTH_ENABLED: "${AUTH_ENABLED:-true}"
+      FRONTEND_BASE_URL: "${FRONTEND_BASE_URL:?FRONTEND_BASE_URL is required for production}"
       SECRET_KEY: "${SECRET_KEY:?SECRET_KEY is required for production}"
       MAIL_USERNAME: "${MAIL_USERNAME:-}"
       MAIL_PASSWORD: "${MAIL_PASSWORD:-}"
