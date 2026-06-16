@@ -2,7 +2,7 @@
 
 This service is a lightweight gateway between the VieTrans web app and the DebackX image-translation worker.
 
-It does not run the NLLB/PaddleOCR model stack locally. The heavy pipeline lives in DebackX and is called through `IIMT_WORKER_URL`.
+It does not run the NLLB/PaddleOCR model stack locally. The heavy pipeline lives in DebackX on a GPU host and is called through `IIMT_WORKER_URL`. Auth/history uses MongoDB Atlas through `MONGO_URI`.
 
 ## Responsibilities
 
@@ -25,8 +25,12 @@ uvicorn server.app:app --host 0.0.0.0 --port 8000 --reload
 Important environment variables:
 
 ```env
-IIMT_WORKER_URL=http://localhost:8081
+MONGO_URI=mongodb+srv://<user>:<password>@<cluster-host>/<database>?retryWrites=true&w=majority&appName=<app-name>
+MONGO_DB=vietrans
+IIMT_WORKER_URL=https://debackx-worker.example.com
 IIMT_WORKER_TIMEOUT_SECONDS=300
+IIMT_WORKER_MODE=async
+IIMT_WORKER_API_KEY=
 VIETRANS_MAX_UPLOAD_MB=20
 AUTH_ENABLED=true
 ```
@@ -51,6 +55,15 @@ This starts:
 
 - `frontend`: Vite dev server on `localhost:5173`.
 - `gateway`: FastAPI gateway on `localhost:8001`.
-- `mongo`: local MongoDB with a persistent Docker volume.
 
-Set `IIMT_WORKER_URL` in the root `.env` to the DebackX worker URL.
+Set `MONGO_URI` to MongoDB Atlas and `IIMT_WORKER_URL` to the DebackX worker URL.
+
+For VM deployment, prefer the production compose file from the repository root:
+
+```bash
+cp .env.production.example .env.production
+docker compose down
+docker compose --env-file .env.production -f docker-compose.prod.yml up -d --build
+```
+
+That setup exposes only the Nginx web service on `WEB_PORT` and routes `/api` to this gateway internally.

@@ -9,7 +9,8 @@ services:
     ports:
       - "${VIETRANS_FRONTEND_PORT:-5173}:5173"
     environment:
-      VITE_API_URL: "http://localhost:${VIETRANS_GATEWAY_PORT:-8001}"
+      VITE_API_URL: "${VITE_API_URL:-}"
+      VITE_DEV_API_PROXY: "${VITE_DEV_API_PROXY:-http://gateway:7860}"
     depends_on:
       - gateway
 
@@ -23,10 +24,13 @@ services:
     ports:
       - "${VIETRANS_GATEWAY_PORT:-8001}:7860"
     environment:
-      MONGO_URI: "mongodb://mongo:27017"
+      MONGO_URI: "${MONGO_URI:?MONGO_URI is required. Use MongoDB Atlas or run with --profile local-mongo and set MONGO_URI=mongodb://mongo:27017}"
       MONGO_DB: "${MONGO_DB:-vietrans}"
       IIMT_WORKER_URL: "${IIMT_WORKER_URL:-http://host.docker.internal:8081}"
       IIMT_WORKER_TIMEOUT_SECONDS: "${IIMT_WORKER_TIMEOUT_SECONDS:-300}"
+      IIMT_WORKER_MODE: "${IIMT_WORKER_MODE:-sync}"
+      IIMT_WORKER_POLL_INTERVAL_SECONDS: "${IIMT_WORKER_POLL_INTERVAL_SECONDS:-2}"
+      IIMT_WORKER_API_KEY: "${IIMT_WORKER_API_KEY:-}"
       VIETRANS_MAX_UPLOAD_MB: "${VIETRANS_MAX_UPLOAD_MB:-20}"
       VIETRANS_RUNTIME_DIR: "/app/outputs/gateway"
       AUTH_ENABLED: "${AUTH_ENABLED:-true}"
@@ -38,18 +42,17 @@ services:
       MAIL_SERVER: "${MAIL_SERVER:-smtp.gmail.com}"
     volumes:
       - gateway_outputs:/app/outputs/gateway
-    depends_on:
-      mongo:
-        condition: service_healthy
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
   mongo:
+    profiles:
+      - local-mongo
     image: mongo:7
     container_name: vietrans-mongo
     restart: unless-stopped
     ports:
-      - "${MONGO_PORT:-27017}:27017"
+      - "127.0.0.1:${MONGO_PORT:-27017}:27017"
     volumes:
       - mongo_data:/data/db
     healthcheck:

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import base64
 import io
+import asyncio
 import json
 import os
 import time
@@ -40,6 +41,9 @@ JOBS_DIR.mkdir(parents=True, exist_ok=True)
 
 WORKER_URL = os.environ.get("IIMT_WORKER_URL", "http://localhost:8081").rstrip("/")
 WORKER_TIMEOUT = float(os.environ.get("IIMT_WORKER_TIMEOUT_SECONDS", "300"))
+WORKER_MODE = os.environ.get("IIMT_WORKER_MODE", "sync").strip().lower()
+WORKER_POLL_INTERVAL = float(os.environ.get("IIMT_WORKER_POLL_INTERVAL_SECONDS", "2"))
+WORKER_API_KEY = os.environ.get("IIMT_WORKER_API_KEY") or os.environ.get("WORKER_API_KEY")
 MAX_UPLOAD_BYTES = int(os.environ.get("VIETRANS_MAX_UPLOAD_MB", "20")) * 1024 * 1024
 AUTH_ENABLED = os.environ.get("AUTH_ENABLED", "true").lower() not in {"0", "false", "no"}
 auth_ready = False
@@ -67,6 +71,14 @@ def _worker_url(path: str | None) -> str | None:
     if path.startswith("http://") or path.startswith("https://"):
         return path
     return urljoin(WORKER_URL + "/", path.lstrip("/"))
+
+
+def _worker_headers(headers: dict[str, str] | None = None) -> dict[str, str]:
+    merged = dict(headers or {})
+    if WORKER_API_KEY:
+        merged.setdefault("Authorization", f"Bearer {WORKER_API_KEY}")
+        merged.setdefault("X-API-Key", WORKER_API_KEY)
+    return merged
 
 
 def _job_path(job_id: str) -> Path:
@@ -195,6 +207,7 @@ def _list_cached_jobs() -> list[dict[str, Any]]:
 
 async def _fetch_worker_json(method: str, path: str, **kwargs: Any) -> dict[str, Any]:
     timeout = httpx.Timeout(WORKER_TIMEOUT)
+    kwargs["headers"] = _worker_headers(kwargs.get("headers"))
     async with httpx.AsyncClient(timeout=timeout) as client:
         response = await client.request(method, _worker_url(path), **kwargs)
     if response.status_code >= 400:
@@ -226,12 +239,32 @@ async def _fetch_worker_asset(record: dict[str, Any], stage: str) -> tuple[bytes
         raise HTTPException(status_code=404, detail=f"Stage is not available: {stage}")
 
     async with httpx.AsyncClient(timeout=httpx.Timeout(WORKER_TIMEOUT)) as client:
-        response = await client.get(source_url)
+        response = await client.get(source_url, headers=_worker_headers())
     if response.status_code >= 400:
         raise HTTPException(status_code=502, detail=f"Could not fetch worker asset: {response.status_code}")
 
     media_type = response.headers.get("content-type") or "application/octet-stream"
     return response.content, media_type
+
+
+async def _run_worker_translation(files: dict[str, tuple[str, bytes, str]]) -> dict[str, Any]:
+    if WORKER_MODE == "async":
+        queued_job = await _fetch_worker_json("POST", "/jobs", files=files)
+        job_id = str(queued_job.get("job_id") or "")
+        if not job_id:
+            raise HTTPException(status_code=502, detail="Worker async response does not include job_id")
+
+        deadline = time.monotonic() + WORKER_TIMEOUT
+        while time.monotonic() < deadline:
+            job = await _fetch_worker_json("GET", f"/jobs/{job_id}")
+            status = job.get("status")
+            if status in {"succeeded", "failed"}:
+                return job
+            await asyncio.sleep(WORKER_POLL_INTERVAL)
+
+        raise HTTPException(status_code=504, detail=f"DebackX worker job timed out: {job_id}")
+
+    return await _fetch_worker_json("POST", "/translate", files=files)
 
 
 async def get_optional_user(request: Request):
@@ -302,6 +335,7 @@ async def health() -> dict[str, Any]:
         "status": "ok" if worker_status == "ok" else "degraded",
         "service": "vietrans-gateway",
         "worker_url": WORKER_URL,
+        "worker_mode": WORKER_MODE,
         "worker_status": worker_status,
         "worker": worker,
         "auth_ready": auth_ready,
@@ -354,7 +388,7 @@ async def upload_image(request: Request, file: UploadFile = File(...)) -> dict[s
     filename = file.filename or "upload.png"
     files = {"file": (filename, contents, file.content_type)}
     started = time.perf_counter()
-    worker_job = await _fetch_worker_json("POST", "/translate", files=files)
+    worker_job = await _run_worker_translation(files)
     fallback_ms = int((time.perf_counter() - started) * 1000)
 
     if worker_job.get("status") != "succeeded":

@@ -1,0 +1,49 @@
+services:
+  web:
+    build:
+      context: ./FE
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: "${VITE_API_URL:-}"
+    image: vietrans-web:prod
+    container_name: vietrans-web
+    restart: unless-stopped
+    ports:
+      - "${WEB_PORT:-80}:80"
+    depends_on:
+      gateway:
+        condition: service_healthy
+
+  gateway:
+    build:
+      context: ./BE-Models
+      dockerfile: Dockerfile
+    image: vietrans-gateway:prod
+    container_name: vietrans-gateway
+    restart: unless-stopped
+    expose:
+      - "7860"
+    environment:
+      MONGO_URI: "${MONGO_URI:?MONGO_URI is required for production}"
+      MONGO_DB: "${MONGO_DB:-vietrans}"
+      IIMT_WORKER_URL: "${IIMT_WORKER_URL:?IIMT_WORKER_URL is required for production}"
+      IIMT_WORKER_TIMEOUT_SECONDS: "${IIMT_WORKER_TIMEOUT_SECONDS:-300}"
+      IIMT_WORKER_MODE: "${IIMT_WORKER_MODE:-async}"
+      IIMT_WORKER_POLL_INTERVAL_SECONDS: "${IIMT_WORKER_POLL_INTERVAL_SECONDS:-2}"
+      IIMT_WORKER_API_KEY: "${IIMT_WORKER_API_KEY:-}"
+      VIETRANS_MAX_UPLOAD_MB: "${VIETRANS_MAX_UPLOAD_MB:-20}"
+      VIETRANS_RUNTIME_DIR: "/app/outputs/gateway"
+      AUTH_ENABLED: "${AUTH_ENABLED:-true}"
+      SECRET_KEY: "${SECRET_KEY:?SECRET_KEY is required for production}"
+      MAIL_USERNAME: "${MAIL_USERNAME:-}"
+      MAIL_PASSWORD: "${MAIL_PASSWORD:-}"
+      MAIL_FROM: "${MAIL_FROM:-}"
+      MAIL_PORT: "${MAIL_PORT:-587}"
+      MAIL_SERVER: "${MAIL_SERVER:-smtp.gmail.com}"
+    volumes:
+      - gateway_outputs:/app/outputs/gateway
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+volumes:
+  gateway_outputs:

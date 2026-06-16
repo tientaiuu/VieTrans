@@ -31,7 +31,7 @@ const DEFAULT_ARCH = [
   { no:'01', title:'OCR Worker',          desc:'PaddleOCR PP-OCRv5 detects text regions and recognizes English text in the uploaded image.', tags:['PaddleOCR','PP-OCRv5','EN rec'], val:'TBD', label:'OCR CER' },
   { no:'02', title:'Translation Worker',  desc:'A fine-tuned NLLB 1.3B checkpoint translates recognized English text into Vietnamese.', tags:['NLLB 1.3B','EN-VI','chrF'], val:'TBD', label:'MT chrF' },
   { no:'03', title:'Image Postprocess',   desc:'DebackX creates masks, removes source text, and renders Vietnamese text back into the image.', tags:['OpenCV','Mask','Renderer'], val:'mask', label:'Output' },
-  { no:'04', title:'API Gateway',         desc:'VieTrans keeps web/auth/history logic separate from the GPU-heavy DebackX worker.', tags:['FastAPI','HTTP worker','Proxy'], val:'8081', label:'Worker port' },
+  { no:'04', title:'API Gateway',         desc:'VieTrans keeps web/auth/history logic separate from the GPU-heavy DebackX worker.', tags:['FastAPI','HTTP worker','Proxy'], val:'remote', label:'Worker API' },
 ];
 const PIPE_STEPS = [
   { n:'01 / OCR',       h:'Text Detection',        p:'PaddleOCR PP-OCRv5 detects text boxes and reads English text from the uploaded image.', tag:'PaddleOCR · PP-OCRv5', icon:'M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z' },
@@ -94,8 +94,8 @@ function buildArchFromPipeline(info: PipelineInfo): typeof DEFAULT_ARCH {
       title: 'API Gateway',
       desc: 'VieTrans proxies uploads, metadata, and worker output files.',
       tags: ['FastAPI', 'HTTP worker', 'History'],
-      val: '8081',
-      label: 'Worker port'
+      val: 'remote',
+      label: 'Worker API'
     }
   ];
 }

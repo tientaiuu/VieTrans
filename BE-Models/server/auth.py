@@ -10,6 +10,7 @@ import os
 import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Optional
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -25,8 +26,19 @@ load_dotenv()
 
 # ─── Configuration ────────────────────────────────────────────────────────────
 
-MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017")
-MONGO_DB = os.getenv("MONGO_DB", "vietrans")
+MONGO_URI = os.getenv("MONGO_URI") or os.getenv("DATABASE_URL")
+
+
+def _database_from_uri(uri: str | None) -> str | None:
+    if not uri:
+        return None
+    parsed = urlparse(uri)
+    db_name = parsed.path.lstrip("/").split("/", 1)[0]
+    return db_name or None
+
+
+MONGO_DB = os.getenv("MONGO_DB") or _database_from_uri(MONGO_URI) or "vietrans"
+MONGO_CONNECT_TIMEOUT_MS = int(os.getenv("MONGO_CONNECT_TIMEOUT_MS", "10000"))
 SECRET_KEY = os.getenv("SECRET_KEY", secrets.token_urlsafe(64))
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
@@ -34,17 +46,28 @@ REMEMBER_ME_EXPIRE_DAYS = 7
 
 # ─── Mail Configuration ───────────────────────────────────────────────────────
 
-conf = ConnectionConfig(
-    MAIL_USERNAME=os.getenv("MAIL_USERNAME"),
-    MAIL_PASSWORD=os.getenv("MAIL_PASSWORD"),
-    MAIL_FROM=os.getenv("MAIL_FROM"),
-    MAIL_PORT=int(os.getenv("MAIL_PORT", "587")),
-    MAIL_SERVER=os.getenv("MAIL_SERVER", "smtp.gmail.com"),
-    MAIL_STARTTLS=True,
-    MAIL_SSL_TLS=False,
-    USE_CREDENTIALS=True,
-    VALIDATE_CERTS=True
-)
+MAIL_USERNAME = os.getenv("MAIL_USERNAME") or None
+MAIL_PASSWORD = os.getenv("MAIL_PASSWORD") or None
+MAIL_FROM = os.getenv("MAIL_FROM") or None
+MAIL_PORT = int(os.getenv("MAIL_PORT", "587"))
+MAIL_SERVER = os.getenv("MAIL_SERVER", "smtp.gmail.com")
+
+conf: ConnectionConfig | None = None
+if MAIL_USERNAME and MAIL_PASSWORD and MAIL_FROM:
+    try:
+        conf = ConnectionConfig(
+            MAIL_USERNAME=MAIL_USERNAME,
+            MAIL_PASSWORD=MAIL_PASSWORD,
+            MAIL_FROM=MAIL_FROM,
+            MAIL_PORT=MAIL_PORT,
+            MAIL_SERVER=MAIL_SERVER,
+            MAIL_STARTTLS=True,
+            MAIL_SSL_TLS=False,
+            USE_CREDENTIALS=True,
+            VALIDATE_CERTS=True,
+        )
+    except Exception as exc:
+        print(f"[Auth] Email is disabled because SMTP settings are invalid: {exc}")
 
 # ─── Security utilities ──────────────────────────────────────────────────────
 
@@ -86,20 +109,26 @@ _db: Optional[AsyncIOMotorDatabase] = None
 async def init_mongo():
     """Called from app.py startup event to initialize MongoDB connection."""
     global _client, _db
-    _client = AsyncIOMotorClient(MONGO_URI)
+    if not MONGO_URI:
+        raise RuntimeError("MONGO_URI is required when auth/history is enabled")
+
+    _client = AsyncIOMotorClient(MONGO_URI, serverSelectionTimeoutMS=MONGO_CONNECT_TIMEOUT_MS)
+    await _client.admin.command("ping")
     _db = _client[MONGO_DB]
     # Create unique index on email
     await _db.users.create_index("email", unique=True)
     # Create TTL index on reset_tokens (auto-expire after 1 hour)
     await _db.reset_tokens.create_index("created_at", expireAfterSeconds=3600)
-    print(f"[Auth] Connected to MongoDB")
+    print(f"[Auth] Connected to MongoDB database '{MONGO_DB}'")
 
 
 async def close_mongo():
     """Called from app.py shutdown event."""
-    global _client
+    global _client, _db
     if _client:
         _client.close()
+    _client = None
+    _db = None
 
 
 def get_db() -> AsyncIOMotorDatabase:
@@ -255,7 +284,6 @@ async def forgot_password(req: ForgotPasswordRequest):
 
     reset_token = secrets.token_urlsafe(32)
 
-    # Send email
     reset_url = f"https://vietrans-projects.netlify.app/reset-password?token={reset_token}"
     html = f"""
     <p>Hi,</p>
@@ -265,11 +293,24 @@ async def forgot_password(req: ForgotPasswordRequest):
     <p>If you didn't request this, you can ignore this email.</p>
     """
 
+    # Store reset token in MongoDB
+    await db.reset_tokens.insert_one({
+        "email": req.email,
+        "token": reset_token,
+        "created_at": datetime.now(timezone.utc),
+    })
+
+    if conf is None:
+        return MessageResponse(
+            message="Password reset token generated. Email is not configured in this environment.",
+            resetToken=reset_token,
+        )
+
     message = MessageSchema(
         subject="VieTrans - Password Reset Request",
         recipients=[req.email],
         body=html,
-        subtype=MessageType.html
+        subtype=MessageType.html,
     )
 
     fm = FastMail(conf)
@@ -277,13 +318,10 @@ async def forgot_password(req: ForgotPasswordRequest):
         await fm.send_message(message)
     except Exception as e:
         print(f"Failed to send email: {e}")
-
-    # Store reset token in MongoDB
-    await db.reset_tokens.insert_one({
-        "email": req.email,
-        "token": reset_token,
-        "created_at": datetime.now(timezone.utc),
-    })
+        return MessageResponse(
+            message="Password reset token generated, but email delivery failed.",
+            resetToken=reset_token,
+        )
 
     return MessageResponse(
         message="If that email is registered, a reset link has been sent.",

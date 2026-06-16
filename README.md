@@ -1,6 +1,6 @@
 # VieTrans Web Gateway for DebackX
 
-VieTrans is the web application that calls the DebackX image-translation worker. The web app stays lightweight: it handles upload UI, authentication, history, downloads, and API proxying, while OCR, NLLB translation, masking, and rendering run in the DebackX worker service.
+VieTrans is the web application that calls the DebackX image-translation worker. The web app stays lightweight: it handles upload UI, authentication, history, downloads, and API proxying, while OCR, NLLB translation, masking, and rendering run in the DebackX worker service on a separate machine.
 
 ## Project Structure
 
@@ -13,7 +13,7 @@ VieTrans is the web application that calls the DebackX image-translation worker.
 2. VieTrans backend validates the file and forwards it to the DebackX worker.
 3. DebackX runs PaddleOCR, the fine-tuned NLLB 1.3B translation model, mask generation, and rendering.
 4. VieTrans normalizes the result and exposes `input`, `result`, `mask`, and `metadata` URLs to the frontend.
-5. If the request includes a valid user token, the result is saved to MongoDB history.
+5. If the request includes a valid user token, the result is saved to MongoDB Atlas history.
 
 ## Backend Setup
 
@@ -28,8 +28,12 @@ cp server/.env.example server/.env
 Set the worker URL in `server/.env`:
 
 ```env
-IIMT_WORKER_URL=http://localhost:8081
+MONGO_URI=mongodb+srv://<user>:<password>@<cluster-host>/<database>?retryWrites=true&w=majority&appName=<app-name>
+MONGO_DB=vietrans
+IIMT_WORKER_URL=https://debackx-worker.example.com
 IIMT_WORKER_TIMEOUT_SECONDS=300
+IIMT_WORKER_MODE=async
+IIMT_WORKER_API_KEY=
 VIETRANS_MAX_UPLOAD_MB=20
 ```
 
@@ -42,7 +46,7 @@ uvicorn server.app:app --host 0.0.0.0 --port 8000 --reload
 
 ## Docker Environment
 
-Use Docker Compose when you want the web backend to run in an isolated environment with its own MongoDB:
+Use Docker Compose when you want the web backend to run in an isolated local environment while using MongoDB Atlas:
 
 ```bash
 cd /home/yusato/workspace/new-Vie
@@ -54,17 +58,37 @@ Default services:
 
 - VieTrans frontend: `http://localhost:5173`
 - VieTrans gateway: `http://localhost:8001`
-- MongoDB: `localhost:27017`
-- DebackX worker expected at: `http://host.docker.internal:8081`
+- MongoDB: configured by `MONGO_URI` and expected to be MongoDB Atlas
+- DebackX worker: configured by `IIMT_WORKER_URL`
 
-If DebackX runs at another URL, edit `IIMT_WORKER_URL` in `.env` before starting Compose.
-If DebackX is not running yet, the app UI still opens. The gateway health endpoint will report a degraded worker state and uploads will fail until the worker is started.
+If DebackX is not running yet, the app UI still opens. The gateway health endpoint will report a degraded worker state and uploads will fail until the worker is started. If Atlas is not reachable, auth/history is disabled and health shows `auth_ready: false`.
 
-When running the frontend against this Docker backend, set:
+The local Vite container proxies `/api` to the gateway inside Docker, so the browser does not need to call `localhost:8001` directly. Keep this value empty unless you intentionally want the frontend to call a separate API origin:
 
 ```env
-VITE_API_URL=http://localhost:8001
+VITE_API_URL=
 ```
+
+## Production Docker Deploy
+
+For a VM deploy, use the production compose file. It builds the React app into static files, serves it through Nginx, proxies `/api` to the FastAPI gateway, and keeps gateway/Mongo off the public network.
+
+```bash
+cd /home/yusato/workspace/new-Vie
+cp .env.production.example .env.production
+# edit SECRET_KEY, MONGO_URI, IIMT_WORKER_URL, and optionally IIMT_WORKER_API_KEY
+docker compose down
+docker compose --env-file .env.production -f docker-compose.prod.yml up -d --build
+```
+
+Default production port:
+
+- Web app and API through Nginx: `http://<server-ip>/`
+- Health check: `http://<server-ip>/api/health`
+
+Only port `80` needs to be public for this setup. Do not expose MongoDB publicly, and do not expose the gateway port. If port `80` is already used locally, set `WEB_PORT=8080` in `.env.production` and open `http://localhost:8080`.
+
+MongoDB Atlas must allow inbound access from the web VM's public IP in Atlas Network Access. The DebackX worker can run on a different GPU host; set `IIMT_WORKER_URL` to that worker's API URL and use the same `IIMT_WORKER_API_KEY` on both sides if the worker is public.
 
 ## Frontend Setup
 
@@ -77,10 +101,11 @@ npm run dev
 The frontend reads `VITE_API_URL`. Use the Docker gateway URL when running with Compose:
 
 ```env
-VITE_API_URL=http://localhost:8001
+VITE_API_URL=
+VITE_DEV_API_PROXY=http://localhost:8000
 ```
 
-If you run the backend directly with `uvicorn` on port `8000`, set `VITE_API_URL=http://localhost:8000` instead or leave it unset.
+If you run the backend directly with `uvicorn` on port `8000`, leave `VITE_API_URL` empty and let the Vite dev proxy forward `/api` to `VITE_DEV_API_PROXY`.
 
 ## Main API
 
@@ -92,6 +117,20 @@ If you run the backend directly with `uvicorn` on port `8000`, set `VITE_API_URL
 - `GET /api/images/mask/{job_id}`: text mask image.
 - `GET /api/download/result/{job_id}`: download as `jpg`, `png`, or `webp`.
 - `GET /api/history`: authenticated user history.
+
+## Optional Local Mongo Fallback
+
+Atlas is the default path. If you need a throwaway local MongoDB for development, set:
+
+```env
+MONGO_URI=mongodb://mongo:27017
+```
+
+Then start Compose with the local Mongo profile:
+
+```bash
+docker compose --profile local-mongo up -d --build
+```
 
 ## Notes for Graduation Project Reporting
 

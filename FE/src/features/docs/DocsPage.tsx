@@ -12,7 +12,7 @@ import {
   Upload,
 } from 'lucide-react';
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+const API_BASE = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '');
 
 const ENDPOINTS = [
   {
@@ -74,9 +74,12 @@ const RESPONSE_EXAMPLE = `{
 const CURL_EXAMPLE = `curl -X POST "${API_BASE}/api/upload" \\
   -F "file=@/path/to/image.png"`;
 
-const ENV_EXAMPLE = `VITE_API_URL=http://localhost:8000
-IIMT_WORKER_URL=http://localhost:8081
+const ENV_EXAMPLE = `VITE_API_URL=
+MONGO_URI=mongodb+srv://<user>:<password>@<cluster-host>/<database>
+IIMT_WORKER_URL=https://debackx-worker.example.com
 IIMT_WORKER_TIMEOUT_SECONDS=300
+IIMT_WORKER_MODE=async
+IIMT_WORKER_API_KEY=
 VIETRANS_MAX_UPLOAD_MB=20
 AUTH_ENABLED=true`;
 
@@ -181,8 +184,9 @@ export const DocsPage: React.FC = () => {
               {ENV_EXAMPLE}
             </pre>
             <p style={{ margin: '16px 0 0', color: 'var(--ink4)', lineHeight: 1.6, fontSize: 14 }}>
-              Put the model and PaddleOCR stack in DebackX. Keep this backend small so the web
-              project can run as a normal service and call the worker over HTTP.
+              Put the model and PaddleOCR stack in DebackX on a GPU host. Keep this backend small
+              so the web project can run as a normal service, call the worker over HTTP, and store
+              history in MongoDB Atlas.
             </p>
           </div>
         </section>

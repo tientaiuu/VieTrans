@@ -18,7 +18,7 @@ const technologyItems = [
   {
     icon: Boxes,
     title: 'Backend gateway',
-    description: 'The FastAPI backend stays lightweight: it accepts uploads, calls the DebackX worker over HTTP, proxies result files, and stores user history.',
+    description: 'The FastAPI backend stays lightweight: it accepts uploads, calls the remote DebackX worker over HTTP, proxies result files, and stores user history in MongoDB Atlas.',
   },
 ];
 
