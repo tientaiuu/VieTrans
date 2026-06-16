@@ -9,9 +9,20 @@ services:
     container_name: vietrans-web
     restart: unless-stopped
     ports:
-      - "${WEB_PORT:-80}:80"
+      - "127.0.0.1:${LOCAL_WEB_PORT:-8080}:80"
     depends_on:
       gateway:
+        condition: service_healthy
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: vietrans-cloudflared
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN:-}
+    profiles:
+      - cloudflare
+    depends_on:
+      web:
         condition: service_healthy
 
   gateway:

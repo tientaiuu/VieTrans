@@ -44,4 +44,4 @@ docker compose down
 docker compose --env-file .env.production -f docker-compose.prod.yml up -d --build
 ```
 
-The production image serves the built React app through Nginx and proxies `/api` to the backend gateway, so the frontend can be opened at `http://<server-ip>/`. The gateway then calls the remote DebackX worker configured by `IIMT_WORKER_URL`.
+The production image serves the built React app through Nginx and proxies `/api` to the backend gateway. With Cloudflare Tunnel, run the `cloudflare` profile and point the public hostname to `http://web:80`. The gateway then calls the remote DebackX worker configured by `IIMT_WORKER_URL`.

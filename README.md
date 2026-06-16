@@ -71,24 +71,39 @@ VITE_API_URL=
 
 ## Production Docker Deploy
 
-For a VM deploy, use the production compose file. It builds the React app into static files, serves it through Nginx, proxies `/api` to the FastAPI gateway, and keeps gateway/Mongo off the public network.
+For a VM deploy behind Cloudflare Tunnel, use the production compose file. It builds the React app into static files, serves it through Nginx, proxies `/api` to the FastAPI gateway, and keeps gateway/Mongo off the public network.
 
 ```bash
 cd /home/yusato/workspace/new-Vie
 cp .env.production.example .env.production
-# edit SECRET_KEY, MONGO_URI, IIMT_WORKER_URL, and optionally IIMT_WORKER_API_KEY
+# edit SECRET_KEY, MONGO_URI, FRONTEND_BASE_URL, IIMT_WORKER_URL, and optionally IIMT_WORKER_API_KEY
 docker compose down
 docker compose --env-file .env.production -f docker-compose.prod.yml up -d --build
 ```
 
-Default production port:
+Default local production port:
 
-- Web app and API through Nginx: `http://<server-ip>/`
-- Health check: `http://<server-ip>/api/health`
+- Web app and API through Nginx: `http://localhost:8080/`
+- Health check: `http://localhost:8080/api/health`
 
-Only port `80` needs to be public for this setup. Do not expose MongoDB publicly, and do not expose the gateway port. If port `80` is already used locally, set `WEB_PORT=8080` in `.env.production` and open `http://localhost:8080`.
+No router port forwarding or public inbound port is required when using Cloudflare Tunnel. The production web container binds only to `127.0.0.1:${LOCAL_WEB_PORT:-8080}` on the VM.
 
-MongoDB Atlas must allow inbound access from the web VM's public IP in Atlas Network Access. The DebackX worker can run on a different GPU host; set `IIMT_WORKER_URL` to that worker's API URL and use the same `IIMT_WORKER_API_KEY` on both sides if the worker is public.
+To run the Cloudflare connector inside the same Docker network, set `CLOUDFLARE_TUNNEL_TOKEN` and start the `cloudflare` profile:
+
+```bash
+docker compose --env-file .env.production -f docker-compose.prod.yml --profile cloudflare up -d --build
+```
+
+In Cloudflare Zero Trust, configure the public hostname:
+
+```text
+yusatothesis.id.vn -> http://web:80
+www.yusatothesis.id.vn -> http://web:80
+```
+
+If you run `cloudflared` directly on the VM instead of Compose, configure the service as `http://localhost:8080`.
+
+MongoDB Atlas must allow inbound access from the web VM or allow trusted network access. The DebackX worker can run on a different GPU host; set `IIMT_WORKER_URL` to that worker's API URL and use the same `IIMT_WORKER_API_KEY` on both sides if the worker is public.
 
 ## Frontend Setup
 

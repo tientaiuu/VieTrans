@@ -66,4 +66,4 @@ docker compose down
 docker compose --env-file .env.production -f docker-compose.prod.yml up -d --build
 ```
 
-That setup exposes only the Nginx web service on `WEB_PORT` and routes `/api` to this gateway internally.
+That setup serves the app locally through Nginx on `LOCAL_WEB_PORT` and routes `/api` to this gateway internally. For Cloudflare Tunnel, run the `cloudflare` compose profile and point the public hostname to `http://web:80`.
