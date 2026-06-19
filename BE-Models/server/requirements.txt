@@ -3,13 +3,23 @@ fastapi>=0.115.0
 uvicorn[standard]>=0.30.0
 Pillow>=10.0.0
 python-multipart>=0.0.9
+python-dotenv>=1.0.0
+gradio-client>=1.3.0
+
+# Deep learning (PyTorch for NLLB translation)
 torch>=2.0.0
 torchvision>=0.15.0
 sentencepiece>=0.1.99
 huggingface_hub>=0.22.0
+transformers>=4.40.0
 timm>=0.9.0
 vector_quantize_pytorch>=1.14.0
 einops>=0.7.0
+
+# OCR — PaddleOCR PP-OCRv5
+# paddlepaddle is installed separately in Dockerfile (CPU-only build)
+paddleocr>=3.0.0
+opencv-python-headless>=4.8.0
 
 # Auth dependencies
 motor>=3.3.0

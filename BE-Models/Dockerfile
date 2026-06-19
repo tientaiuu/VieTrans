@@ -4,10 +4,23 @@ FROM python:3.10-slim
 # Thiết lập thư mục làm việc
 WORKDIR /app
 
+# Cài các thư viện hệ thống cần thiết cho OpenCV
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libglib2.0-0 \
+    libgl1 \
+    && rm -rf /var/lib/apt/lists/*
+
 # Copy requirement và cài đặt
 COPY requirements.txt .
-# Tải PyTorch phiên bản CPU để nhẹ và phù hợp với HuggingFace Space miễn phí
+
+# 1. PyTorch CPU (nhẹ, phù hợp HuggingFace Space miễn phí)
 RUN pip install --no-cache-dir torch torchvision --index-url https://download.pytorch.org/whl/cpu
+
+# 2. PaddlePaddle CPU (PP-OCRv5 backend)
+RUN pip install --no-cache-dir paddlepaddle \
+    -i https://www.paddlepaddle.org.cn/packages/stable/cpu/
+
+# 3. Phần còn lại (PaddleOCR, FastAPI, NLLB, Auth, ...)
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy toàn bộ code BE-Models vào

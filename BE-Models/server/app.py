@@ -66,72 +66,7 @@ LIVE_DIR.mkdir(parents=True, exist_ok=True)
 THUMB_DIR = RESULTS_DIR / ".thumbs"
 THUMB_DIR.mkdir(parents=True, exist_ok=True)
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# MOCK MODE - Tạm thời: match ảnh upload với mockdata/En → trả về mockdata/Vi
-# ĐỂ XÓA: xóa toàn bộ block từ dòng này đến dòng END MOCK MODE
-# ═══════════════════════════════════════════════════════════════════════════════
-MOCK_MODE_ENABLED = True  # ← đặt False để tắt mock mode
-MOCKDATA_DIR = DEBACK_ROOT / "mockdata"
-MOCK_EN_DIR = MOCKDATA_DIR / "En"
-MOCK_VI_DIR = MOCKDATA_DIR / "Vi"
-MOCK_DELAY_SECONDS = (4, 7.0)  # (min, max) giây delay giả lập
-
-_mock_hashes: dict[str, str] = {}  # phash → stem name (e.g. "22")
-
-
-def _build_mock_hashes():
-    """Build perceptual hashes for all English mockdata images."""
-    global _mock_hashes
-    if not MOCK_MODE_ENABLED or not MOCK_EN_DIR.exists():
-        return
-    for f in sorted(MOCK_EN_DIR.iterdir()):
-        if f.suffix.lower() not in (".jpg", ".jpeg", ".png"):
-            continue
-        try:
-            img = Image.open(f).convert("L").resize((16, 16), Image.LANCZOS)
-            pixels = list(img.getdata())
-            avg = sum(pixels) / len(pixels)
-            bits = "".join("1" if p > avg else "0" for p in pixels)
-            _mock_hashes[bits] = f.stem
-        except Exception as ex:
-            print(f"[MockMode] Could not hash {f.name}: {ex}")
-    print(f"[MockMode] Indexed {len(_mock_hashes)} mockdata images from {MOCK_EN_DIR}")
-
-
-def _find_mock_match(img_bytes: bytes) -> str | None:
-    """
-    Compute phash of uploaded image and find the closest match in mockdata/En/.
-    Returns the stem (e.g. '22') if match found within threshold, else None.
-    """
-    if not MOCK_MODE_ENABLED or not _mock_hashes:
-        return None
-    try:
-        img = Image.open(io.BytesIO(img_bytes)).convert("L").resize((16, 16), Image.LANCZOS)
-        pixels = list(img.getdata())
-        avg = sum(pixels) / len(pixels)
-        upload_hash = "".join("1" if p > avg else "0" for p in pixels)
-    except Exception:
-        return None
-
-    best_stem = None
-    best_dist = 999
-    for ref_hash, stem in _mock_hashes.items():
-        dist = sum(c1 != c2 for c1, c2 in zip(upload_hash, ref_hash))
-        if dist < best_dist:
-            best_dist = dist
-            best_stem = stem
-
-    # Threshold: ≤ 30 bits different out of 256 (< 12% mismatch)
-    MOCK_MATCH_THRESHOLD = 30
-    if best_dist <= MOCK_MATCH_THRESHOLD:
-        print(f"[MockMode] Matched upload → mockdata/{best_stem}.jpg (hamming={best_dist})")
-        return best_stem
-    print(f"[MockMode] No match found (best hamming={best_dist})")
-    return None
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# END MOCK MODE
-# ═══════════════════════════════════════════════════════════════════════════════
+# Mock mode disabled/removed
 
 # ─── Cache text results at startup ────────────────────────────────────────────
 TIT_FILE = RESULTS_DIR / "translation" / "test" / "tit.vi"
@@ -229,7 +164,6 @@ async def startup():
     _load_text_cache()
     _scan_sample_ids()
     _build_input_hashes()
-    _build_mock_hashes()  # MOCK MODE
     print(f"[DebackX] Loaded {len(_sample_ids)} samples, {len(_tit_lines)} text lines, {len(_input_hashes)} hashes")
     
     if dbx_pipeline:
@@ -512,70 +446,7 @@ async def upload_and_match(request: Request, file: UploadFile = File(...)):
     except Exception as e:
         raise HTTPException(400, f"Cannot process image: {e}")
 
-    # ═══════════════════════════════════════════════════════════════════════════
-    # MOCK MODE - Kiểm tra xem ảnh upload có khớp với mockdata/En không
-    # ĐỂ XÓA: xóa block này và bỏ comment phần real pipeline bên dưới
-    # ═══════════════════════════════════════════════════════════════════════════
-    mock_stem = _find_mock_match(contents)
-    if mock_stem is not None:
-        import shutil
-
-        # Giả lập thời gian xử lý pipeline
-        delay = random.uniform(*MOCK_DELAY_SECONDS)
-        print(f"[MockMode] Simulating {delay:.1f}s processing delay...")
-        await asyncio.sleep(delay)
-
-        # Copy ảnh từ mockdata vào live dir để serve qua /api/images
-        mock_en_img = MOCK_EN_DIR / f"{mock_stem}.jpg"
-        mock_vi_img = MOCK_VI_DIR / f"{mock_stem}.jpg"
-
-        # input = ảnh gốc (đã lưu), back/text_en = ảnh en, text_vi/fuse = ảnh vi
-        shutil.copy2(mock_en_img, out_dir / "back.jpg")
-        shutil.copy2(mock_en_img, out_dir / "text_en.jpg")
-        shutil.copy2(mock_vi_img, out_dir / "text_vi.jpg")
-        shutil.copy2(mock_vi_img, out_dir / "fuse.jpg")
-
-        tit_path = out_dir / "tit.txt"
-        # Đọc file .txt tương ứng trong mockdata/Vi/ nếu có
-        mock_txt_path = MOCK_VI_DIR / f"{mock_stem}.txt"
-        if mock_txt_path.exists():
-            tit = mock_txt_path.read_text(encoding="utf-8").strip()
-        else:
-            tit = ""  # Để trống — user có thể tự nhập trên FE
-        tit_path.write_text(tit, encoding="utf-8")
-
-        base = "/api/images"
-        stages = {
-            "input":   f"{base}/input/{uid}",
-            "back":    f"{base}/back/{uid}",
-            "text_en": f"{base}/text_en/{uid}",
-            "text_vi": f"{base}/text_vi/{uid}",
-            "fuse":    f"{base}/fuse/{uid}",
-        }
-
-        user = await get_optional_user(request)
-        if user:
-            db = get_db()
-            await db.histories.insert_one({
-                "user_email": user["email"],
-                "sample_id": uid,
-                "tit": tit,
-                "ocr": "",
-                "stages": stages,
-                "created_at": datetime.now(timezone.utc)
-            })
-
-        return {
-            "matched_id": uid,
-            "match_quality": "mock",
-            "hamming_distance": 0,
-            "tit": tit,
-            "ocr": "",
-            "stages": stages,
-        }
-    # ═══════════════════════════════════════════════════════════════════════════
-    # END MOCK MODE
-    # ═══════════════════════════════════════════════════════════════════════════
+    # Mock mode removed, directly run real pipeline below
 
     if not dbx_pipeline:
         raise HTTPException(500, "Inference pipeline is not configured on this server")
