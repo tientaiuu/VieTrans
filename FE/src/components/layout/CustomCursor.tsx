@@ -10,7 +10,7 @@ export const CustomCursor: React.FC = () => {
         sourceRef.current.style.left = `${e.clientX}px`;
         sourceRef.current.style.top = `${e.clientY}px`;
       }
-      
+
       // Target lags behind slightly
       setTimeout(() => {
         if (targetRef.current) {
@@ -21,8 +21,8 @@ export const CustomCursor: React.FC = () => {
 
       // Hover detection
       const target = e.target as HTMLElement;
-      const isInteractive = target.closest('button, a, .uz-hl, .logo-wrap');
-      
+      const isInteractive = target.closest('button, a, input, select, textarea, [role="button"], .uz-hl, .logo-wrap, .demo-pair, .demo-feature-card, .pipe-step, .cap-card, .h-card');
+
       if (isInteractive) {
         document.body.classList.add('hov');
       } else {
