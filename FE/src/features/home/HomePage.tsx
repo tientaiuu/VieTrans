@@ -326,7 +326,7 @@ export const HomePage: React.FC = () => {
 
               <div className="hv2-stack">
                 <span className="hv2-stack-label">STACK</span>
-                {['PaddleOCR', 'NLLB', 'OpenCV inpaint', 'Layout render'].map(p => (
+                {['PaddleOCR', 'mBART-50', 'LaMa', 'SOC 2'].map(p => (
                   <span key={p} className="hd-pill">{p}</span>
                 ))}
               </div>
