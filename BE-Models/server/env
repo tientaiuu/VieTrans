@@ -1,0 +1,26 @@
+# MongoDB Configuration
+MONGO_URI=mongodb+srv://masterdzzzz:datkochin@cluster0.3s025.mongodb.net/?appName=Cluster0
+MONGO_DB=vietrans
+
+# Security
+SECRET_KEY=sauae_tren_1_chiec_xe_t@ng
+
+# CORS — comma-separated list of allowed origins (no trailing slashes)
+# For production: set to your actual frontend domain
+ALLOWED_ORIGINS=http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173
+
+# Email Configuration (Gmail)
+MAIL_USERNAME=datmaster200418@gmail.com
+MAIL_PASSWORD=mrpo utob bopr kspt
+MAIL_FROM=datmaster200418@gmail.com
+MAIL_PORT=587
+MAIL_SERVER=smtp.gmail.com
+
+# ─── Modified-DebackX Pipeline (NLLB + PaddleOCR) ────────────────────────────
+NLLB_MODEL_PATH=D:/models/mt-nllb-1p3b-en-vi/best
+NLLB_SRC_LANG=eng_Latn
+NLLB_TGT_LANG=vie_Latn
+OCR_MIN_CONFIDENCE=0.5
+RENDER_FONT_PATH=
+GRADIO_SPACE_URL=masterdzzzz/vietrans-modelspace
+HF_TOKEN=

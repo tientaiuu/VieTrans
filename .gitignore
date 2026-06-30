@@ -24,3 +24,19 @@ build/
 
 # Codex temporary extraction folders
 .codex-tmp-*/
+
+# ─── IDE & Tooling ────────────────────────────────────────────────────────────
+.codex/
+.copilot/
+.gemini/
+.antigravity-ide/
+.vscode/
+.vscode-shared/
+.cache/
+.npm/
+.zsh_history
+.zsh_sessions/
+.node_repl_history
+.python_history
+.oracle_jre_usage/
+.CFUserTextEncoding

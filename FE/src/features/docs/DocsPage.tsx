@@ -24,11 +24,17 @@ const DocsCSS = () => (
     }
 
     /* scrollbar */
-    .docs-root ::-webkit-scrollbar { width: 5px; height: 5px; }
-    .docs-root ::-webkit-scrollbar-track { background: transparent; }
+    .docs-root ::-webkit-scrollbar { width: 8px; height: 8px; }
+    .docs-root ::-webkit-scrollbar-track {
+      background: color-mix(in srgb, var(--ink) 4%, transparent);
+      border-radius: 99px;
+    }
     .docs-root ::-webkit-scrollbar-thumb {
       background: var(--docs-border);
       border-radius: 99px;
+    }
+    .docs-root ::-webkit-scrollbar-thumb:hover {
+      background: color-mix(in srgb, var(--ink) 30%, transparent);
     }
 
     /* Subtle grid bg using app border color */
@@ -50,7 +56,7 @@ const DocsCSS = () => (
       0%   { transform: translateY(-100%); }
       100% { transform: translateY(400%); }
     }
-    .docs-code-scanline { position: relative; overflow: hidden; }
+    .docs-code-scanline { position: relative; overflow: hidden; flex: 1; display: flex; flex-direction: column; }
     .docs-code-scanline::after {
       content: '';
       position: absolute;
@@ -106,6 +112,9 @@ const DocsCSS = () => (
       box-shadow:
         0 0 0 1px rgba(0,0,0,0.06),
         0 16px 40px rgba(0,0,0,0.10);
+      display: flex;
+      flex-direction: column;
+      height: 100%;
     }
     .docs-code-header {
       background: var(--docs-code-hd);
@@ -123,6 +132,7 @@ const DocsCSS = () => (
       color: var(--docs-code-text);
       overflow-x: auto;
       margin: 0;
+      flex: 1;
     }
 
     /* Tab button */
@@ -172,6 +182,9 @@ const DocsCSS = () => (
       border-radius: 12px;
       overflow: hidden;
       background: var(--docs-code-bg);
+      display: flex;
+      flex-direction: column;
+      height: 100%;
     }
     .docs-response-block--ok {
       border: 1px solid color-mix(in srgb, var(--docs-method-post-clr) 25%, transparent);
@@ -204,12 +217,11 @@ const DocsCSS = () => (
       border-radius: 12px;
       border: 1px solid var(--docs-border);
       background: var(--paper);
-      transition: border-color 0.2s, box-shadow 0.2s;
+      transition: border-color 0.2s;
       cursor: default;
     }
     .docs-pipeline-card:hover {
-      border-color: color-mix(in srgb, var(--blue) 35%, transparent);
-      box-shadow: 0 0 40px var(--blueG);
+      border-color: var(--blue);
     }
 
     /* TOC active line */
@@ -373,27 +385,42 @@ echo curl_exec($curl);`,
 // ─── Syntax Highlight (theme-aware colors via inline) ────────────────────────
 // String/number tokens use relative opacity so they look ok on both themes
 const SyntaxHighlight: React.FC<{ code: string }> = ({ code }) => {
-  const hl = code
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    // strings
-    .replace(/("(?:[^"\\]|\\.)*")/g, '<span class="docs-hl-str">$1</span>')
-    // flags
-    .replace(/(\s-{1,2}[\w-]+)/g, '<span class="docs-hl-flag">$1</span>')
-    // keywords
-    .replace(/\b(import|from|const|let|await|async|new|echo|function|return|true|false|null|undefined|class|print)\b/g,
-      '<span class="docs-hl-kw">$1</span>')
-    // numbers
-    .replace(/\b(\d+)\b/g, '<span class="docs-hl-num">$1</span>')
-    // comments
-    .replace(/(#[^\n]*|\/\/[^\n]*)/g, '<span class="docs-hl-cmt">$1</span>')
-    // json keys
-    .replace(/"([^"]+)"(?=:)/g, '<span class="docs-hl-str">"$1"</span>')
-    // builtin funcs
-    .replace(/\b(curl_init|curl_setopt_array|curl_setopt|curl_exec|CURLOPT_\w+|FormData|fetch|console\.log|requests|open)\b/g,
-      '<span class="docs-hl-fn">$1</span>');
-  return <code dangerouslySetInnerHTML={{ __html: hl }} />;
+  // Split the code using a regex that captures all token types.
+  // Capturing groups:
+  // Group 1: Comment (starts with # or //)
+  // Group 2: String (double quotes, single quotes, backticks)
+  // Group 3: Keyword
+  // Group 4: Flag (starting with - or --)
+  // Group 5: Built-in function
+  // Group 6: Number
+  const tokenRegex = /(#[^\n]*|\/\/[^\n]*)|("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|`(?:[^`\\]|\\.)*`)|(\b(?:import|from|const|let|await|async|new|echo|function|return|true|false|null|undefined|class|print)\b)|(\s-{1,2}[\w-]+)|(\b(?:curl_init|curl_setopt_array|curl_setopt|curl_exec|CURLOPT_\w+|FormData|fetch|console\.log|requests|open)\b)|(\b\d+\b)/g;
+
+  const parts = code.split(tokenRegex);
+  const elements: React.ReactNode[] = [];
+
+  for (let i = 0; i < parts.length; i++) {
+    const part = parts[i];
+    if (!part) continue;
+
+    const type = i % 7;
+    if (type === 0) {
+      elements.push(part);
+    } else if (type === 1) {
+      elements.push(<span key={i} className="docs-hl-cmt">{part}</span>);
+    } else if (type === 2) {
+      elements.push(<span key={i} className="docs-hl-str">{part}</span>);
+    } else if (type === 3) {
+      elements.push(<span key={i} className="docs-hl-kw">{part}</span>);
+    } else if (type === 4) {
+      elements.push(<span key={i} className="docs-hl-flag">{part}</span>);
+    } else if (type === 5) {
+      elements.push(<span key={i} className="docs-hl-fn">{part}</span>);
+    } else if (type === 6) {
+      elements.push(<span key={i} className="docs-hl-num">{part}</span>);
+    }
+  }
+
+  return <code>{elements}</code>;
 };
 
 // Syntax highlight CSS — strings/keys = blue accent, funcs = blue2, keywords = muted red
@@ -411,10 +438,17 @@ const SyntaxCSS = () => (
 // ─── Method Badge ─────────────────────────────────────────────────────────────
 const MethodBadge: React.FC<{ method: 'GET' | 'POST' }> = ({ method }) => (
   <span
-    className={`inline-flex items-center font-mono text-[9px] font-bold px-2 py-0.5 rounded leading-none tracking-widest uppercase ${
+    className={`inline-flex items-center justify-center font-mono text-[9px] font-bold rounded uppercase ${
       method === 'POST' ? 'docs-badge-post' : 'docs-badge-get'
     }`}
-    style={{ fontFamily: "'JetBrains Mono', 'Space Mono', monospace" }}
+    style={{
+      fontFamily: "'JetBrains Mono', 'Space Mono', monospace",
+      width: '42px',
+      height: '18px',
+      lineHeight: 1,
+      letterSpacing: '0.03em',
+      flexShrink: 0,
+    }}
   >
     {method}
   </span>
@@ -536,9 +570,11 @@ const ResponseBlock: React.FC<{
           {status}
         </span>
       </div>
-      <pre className="docs-code-pre">
-        <SyntaxHighlight code={json} />
-      </pre>
+      <div className="docs-code-scanline" style={{ position: 'relative' }}>
+        <pre className="docs-code-pre">
+          <SyntaxHighlight code={json} />
+        </pre>
+      </div>
     </div>
   );
 };
@@ -825,6 +861,20 @@ const FaqItem: React.FC<{ q: string; a: string; isLast: boolean }> = ({ q, a, is
     </div>
   );
 };
+
+const PythonIcon: React.FC = () => (
+  <svg viewBox="0 0 24 24" width="16" height="16" style={{ display: 'block' }}>
+    <path fill="#3776AB" d="M12.12 1.5c-1.35 0-2.52.12-3.17.38-.85.35-1.44.97-1.44 2.1v2.02h4.7v.52H6.42A2.88 2.88 0 0 0 3.53 9.4c0 1.55.15 2.76.6 3.4.45.65 1.25.75 2.3.75h1.22v-1.62c0-1 .5-1.5 1.5-1.5h4.7c1 0 1.5-.5 1.5-1.5v-4.7c0-1-.5-1.5-1.5-1.5H12.12zm-2.02 1.62a.62.62 0 1 1 0 1.25.62.62 0 0 1 0-1.25z"/>
+    <path fill="#FFE873" d="M11.88 22.5c1.35 0 2.52-.12 3.17-.38.85-.35 1.44-.97 1.44-2.1v-2.02H11.8v-.52h5.78A2.88 2.88 0 0 0 20.47 14.6c0-1.55-.15-2.76-.6-3.4-.45-.65-1.25-.75-2.3-.75h-1.22v1.62c0 1-.5 1.5-1.5 1.5h-4.7c-1 0-1.5.5-1.5 1.5v4.7c0 1 .5 1.5 1.5 1.5h1.75zm2.02-1.62a.62.62 0 1 1 0-1.25.62.62 0 0 1 0 1.25z"/>
+  </svg>
+);
+
+const JavaScriptIcon: React.FC = () => (
+  <svg viewBox="0 0 24 24" width="16" height="16" style={{ display: 'block', borderRadius: '2px', background: '#F7DF1E' }}>
+    <path fill="#000" d="M2 2h20v20H2z" style={{ fill: '#F7DF1E' }} />
+    <path fill="#000" d="M18.8 17.2c-.3-.8-.9-1.2-1.8-1.2-1 0-1.5.6-1.5 1.6 0 1 .5 1.5 1.6 1.5.8 0 1.3-.4 1.6-1.1l1.5.9c-.6 1.2-1.7 2-3.1 2-2.3 0-3.8-1.5-3.8-3.8 0-2.3 1.5-3.8 3.8-3.8 1.8 0 3 1 3.5 2.5l-1.8 1.4zm-7.7.9c.2.6.6.9 1.1.9.5 0 .8-.2.8-.7 0-.5-.3-.7-.9-1l-.6-.3c-1.3-.6-1.9-1.3-1.9-2.6 0-1.6 1.3-2.6 3.1-2.6 1.6 0 2.7.8 3.1 2.2l-1.8.9c-.3-.6-.6-.9-1.1-.9-.4 0-.7.2-.7.6 0 .4.3.6.9.9l.6.3c1.4.6 2 1.3 2 2.7 0 1.8-1.4 2.8-3.3 2.8-2 0-3-1.1-3.4-2.5l1.6-.7z"/>
+  </svg>
+);
 
 // ─── Main DocsPage ─────────────────────────────────────────────────────────────
 export const DocsPage: React.FC = () => {
@@ -1238,7 +1288,7 @@ export const DocsPage: React.FC = () => {
               direct neural text translation, and seamless final layer fusion — requiring zero external OCR or heuristic font matching.
             </p>
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '14px' }}>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {[
                 { step: '01', icon: '◎', title: 'Background Separation', sub: 'OCR/Layout analyzer', desc: 'Isolates source text layers from complex backgrounds, producing clean background segments.' },
                 { step: '02', icon: '⟳', title: 'Visual Quantization', sub: 'Layout blocks (8192 Size)', desc: 'Encodes and quantizes source visual text features into structured discrete codes representing font and layout.' },
@@ -1391,7 +1441,7 @@ export const DocsPage: React.FC = () => {
             <ParamTable params={[
               { name: 'file', type: 'binary', required: true, description: 'Image file. Accepted: .png, .jpg, .jpeg, .webp. Max size: 10 MB.' },
             ]} />
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: '14px' }}>
+            <div className="flex flex-col gap-4">
               <CodeBlock id="upload" title="Request" tabs={['curl', 'js', 'python', 'php']}
                 snippets={uploadCode} activeTab={codeTabs['upload']}
                 onTabChange={(tab) => handleTabChange('upload', tab)}
@@ -1420,7 +1470,7 @@ export const DocsPage: React.FC = () => {
               { name: 'file', type: 'binary', required: true, description: 'Image file. Accepted: .png, .jpg, .jpeg, .webp. Max size: 10 MB.' },
               { name: 'mask_coordinates', type: 'string (JSON)', required: false, description: 'Bounding box array [[x1,y1,x2,y2], …]. If omitted, all detected text regions are erased.' },
             ]} />
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: '14px' }}>
+            <div className="flex flex-col gap-4">
               <CodeBlock id="inpainting" title="Request" tabs={['curl', 'js', 'python']}
                 snippets={{
                   curl: `curl -X POST https://masterdzzzz-vietrans-backend.hf.space/api/inpainting \\\n  -H "Authorization: Bearer YOUR_JWT_TOKEN" \\\n  -F "file=@/path/to/image.png"`,
@@ -1449,7 +1499,7 @@ export const DocsPage: React.FC = () => {
               { name: 'page', type: 'integer', required: false, description: 'Page index, 1-indexed. Defaults to 1.' },
               { name: 'limit', type: 'integer', required: false, description: 'Items per page. Defaults to 10. Maximum: 100.' },
             ]} />
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: '14px' }}>
+            <div className="flex flex-col gap-4">
               <CodeBlock id="history" title="Request" tabs={['curl', 'js', 'python']}
                 snippets={historyCode} activeTab={codeTabs['history']}
                 onTabChange={(tab) => handleTabChange('history', tab)}
@@ -1524,28 +1574,30 @@ export const DocsPage: React.FC = () => {
             <p style={{ fontSize: '15px', fontFamily: "'Lora', Georgia, serif", lineHeight: 1.85, color: 'var(--ink3)', marginBottom: '28px' }}>
               Use the REST endpoint directly from your app or automation. Official SDK packages are not published yet.
             </p>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '14px' }}>
+            <div className="flex flex-col gap-4">
               {[
                 {
-                  icon: '🐍', pkg: 'Python requests', ver: 'REST upload',
+                  icon: <PythonIcon />, pkg: 'Python requests', ver: 'REST upload',
                   code: `import requests\n\nwith open("hero.png", "rb") as f:\n    res = requests.post(\n        "https://your-api.example.com/api/upload",\n        files={"file": f},\n        headers={"Authorization": "Bearer ${apiKey}"},\n    )\nres.raise_for_status()\nprint(res.json()["stages"]["fuse"])`,
                 },
                 {
-                  icon: '⬡', pkg: 'JavaScript fetch', ver: 'REST upload',
+                  icon: <JavaScriptIcon />, pkg: 'JavaScript fetch', ver: 'REST upload',
                   code: `const form = new FormData();\nform.append("file", fileInput.files[0]);\n\nconst res = await fetch("https://your-api.example.com/api/upload", {\n  method: "POST",\n  headers: { Authorization: "Bearer ${apiKey}" },\n  body: form,\n});\n\nif (!res.ok) throw new Error(await res.text());\nconst data = await res.json();\nconsole.log(data.stages.fuse);`,
                 },
               ].map((sdk) => (
                 <div key={sdk.pkg} className="docs-code-block">
                   <div className="docs-code-header" style={{ justifyContent: 'space-between' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                      <span style={{ fontSize: '16px' }}>{sdk.icon}</span>
+                      {sdk.icon}
                       <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: '12px', fontWeight: 600, color: 'var(--ink2)' }}>{sdk.pkg}</span>
                     </div>
                     <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: '10px', color: 'var(--ink4)' }}>{sdk.ver}</span>
                   </div>
-                  <pre className="docs-code-pre" style={{ fontSize: '11.5px' }}>
-                    <SyntaxHighlight code={sdk.code} />
-                  </pre>
+                  <div className="docs-code-scanline" style={{ position: 'relative' }}>
+                    <pre className="docs-code-pre" style={{ fontSize: '11.5px', flex: 1 }}>
+                      <SyntaxHighlight code={sdk.code} />
+                    </pre>
+                  </div>
                 </div>
               ))}
             </div>

@@ -2,7 +2,7 @@ import React from 'react';
 import {
   Download, X, Layers, RefreshCw, Trash2, Copy, Check,
   Sparkles, ScanLine, Languages, Blend, ImageIcon, Play,
-  PanelLeft, GitBranch, Eye,
+  PanelLeft, GitBranch, Eye, Paintbrush, Image, GitFork, Split, Braces,
 } from 'lucide-react';
 import { useStudioStore } from '../../stores/useStudioStore';
 import { UploadZone } from './components/UploadZone';
@@ -557,7 +557,17 @@ export const StudioPage: React.FC = () => {
 
             {/* Done state — result views */}
             {activeItem?.status === 'done' && activeItem.result && (
-              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+              <div style={{
+                flex: 1,
+                display: 'flex',
+                flexDirection: 'column',
+                minHeight: 0,
+                border: '1px solid var(--ln)',
+                borderRadius: '12px',
+                overflow: 'hidden',
+                background: 'var(--paper)',
+                boxShadow: '0 4px 20px rgba(0,0,0,0.03)',
+              }}>
 
                 {/* ── Tab bar ── */}
                 <div style={{
@@ -568,11 +578,11 @@ export const StudioPage: React.FC = () => {
                   overflowX: 'auto',
                 }}>
                   {([
-                    { key: 'single',     label: 'Editor',   icon: <ImageIcon size={12} /> },
-                    { key: 'original',   label: 'Original', icon: <Eye size={12} /> },
-                    { key: 'pipeline',   label: 'Pipeline', icon: <GitBranch size={12} /> },
-                    { key: 'comparison', label: 'Compare',  icon: <ScanLine  size={12} /> },
-                    { key: 'json',       label: 'JSON',     icon: <Languages size={12} /> },
+                    { key: 'single',     label: 'Editor',   icon: <Paintbrush size={14} /> },
+                    { key: 'original',   label: 'Original', icon: <Image size={14} /> },
+                    { key: 'pipeline',   label: 'Pipeline', icon: <GitFork size={14} /> },
+                    { key: 'comparison', label: 'Compare',  icon: <Split size={14} /> },
+                    { key: 'json',       label: 'JSON',     icon: <Braces size={14} /> },
                   ] as const).map(tab => (
                     <button
                       key={tab.key}

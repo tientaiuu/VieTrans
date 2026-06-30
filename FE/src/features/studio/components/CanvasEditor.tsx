@@ -39,6 +39,11 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({ imageUrl, onSave }) 
   const [tempSizeInput, setTempSizeInput] = useState('8');
   const [brushColor, setBrushColor] = useState('#ffffff');
   const [zoom, setZoom] = useState(1);
+  const [isEditingZoom, setIsEditingZoom] = useState(false);
+  const [tempZoomInput, setTempZoomInput] = useState('100');
+  const [isPanningState, setIsPanningState] = useState(false);
+  const isPanningRef = useRef(false);
+  const panStart = useRef({ x: 0, y: 0, scrollLeft: 0, scrollTop: 0 });
   const [dimensions, setDimensions] = useState<{ width: number; height: number } | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [isDirty, setIsDirty] = useState(false);
@@ -47,9 +52,12 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({ imageUrl, onSave }) 
   const [textInput, setTextInput] = useState<TextState | null>(null);
   const [addedTexts, setAddedTexts] = useState<AddedText[]>([]);
   const [selectedTextId, setSelectedTextId] = useState<string | null>(null);
+  const [isMobile, setIsMobile] = useState(false);
   const isDrawing = useRef(false);
   const lastPos = useRef<{ x: number; y: number } | null>(null);
   const dragStartOffset = useRef<{ x: number; y: number } | null>(null);
+
+
 
   const redraw = useCallback(() => {
     const canvas = canvasRef.current;
@@ -334,6 +342,16 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({ imageUrl, onSave }) 
       if (matchedTextId) {
         isDrawing.current = true;
         (e.target as HTMLCanvasElement).setPointerCapture(e.pointerId);
+      } else {
+        isPanningRef.current = true;
+        setIsPanningState(true);
+        panStart.current = {
+          x: e.clientX,
+          y: e.clientY,
+          scrollLeft: containerRef.current?.scrollLeft || 0,
+          scrollTop: containerRef.current?.scrollTop || 0
+        };
+        (e.target as HTMLCanvasElement).setPointerCapture(e.pointerId);
       }
       redraw();
       return;
@@ -345,6 +363,16 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({ imageUrl, onSave }) 
   }, [tool, getPos, addedTexts, redraw]);
 
   const draw = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (isPanningRef.current) {
+      e.preventDefault();
+      const dx = e.clientX - panStart.current.x;
+      const dy = e.clientY - panStart.current.y;
+      if (containerRef.current) {
+        containerRef.current.scrollLeft = panStart.current.scrollLeft - dx;
+        containerRef.current.scrollTop = panStart.current.scrollTop - dy;
+      }
+      return;
+    }
     if (tool === 'text' || !isDrawing.current) return;
     e.preventDefault();
     const pos = getPos(e);
@@ -415,8 +443,15 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({ imageUrl, onSave }) 
     redraw();
   }, [tool, brushColor, brushSize, getPos, selectedTextId, redraw]);
 
-  const endDraw = useCallback(() => {
+  const endDraw = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (isPanningRef.current && canvasRef.current) {
+      try {
+        (e.target as HTMLCanvasElement).releasePointerCapture(e.pointerId);
+      } catch (err) {}
+    }
     isDrawing.current = false;
+    isPanningRef.current = false;
+    setIsPanningState(false);
     lastPos.current = null;
     dragStartOffset.current = null;
   }, []);
@@ -457,6 +492,21 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({ imageUrl, onSave }) 
     setZoom(fitScale);
   }, []);
 
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        setIsMobile(entry.contentRect.width < 880);
+      }
+      if (canvasRef.current && canvasRef.current.width > 0) {
+        handleFitZoom();
+      }
+    });
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, [handleFitZoom]);
+
   const toolItems: { id: Tool; label: string; icon: React.ReactNode }[] = [
     { id: 'select', label: 'Select',  icon: <MousePointer size={17} /> },
     { id: 'pen',    label: 'Draw',    icon: <Pencil size={17} /> },
@@ -465,7 +515,7 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({ imageUrl, onSave }) 
   ];
 
   return (
-    <div className="canvas-editor flex flex-col flex-1 min-h-0 rounded-xl overflow-hidden border border-[var(--ln)] relative" style={{ background: 'var(--bg)' }}>
+    <div className="canvas-editor flex flex-col flex-1 min-h-0 overflow-hidden relative" style={{ background: 'var(--bg)' }}>
 
       {textInput && (
         <div
@@ -557,19 +607,20 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({ imageUrl, onSave }) 
             alignItems: 'center',
             justifyContent: 'center',
             transition: 'width 0.15s ease, height 0.15s ease',
+            borderRadius: '8px',
+            boxShadow: '0 8px 30px rgba(0,0,0,0.08)',
+            border: '1px solid var(--ln)',
+            overflow: 'hidden',
           }}
         >
           <canvas
             ref={canvasRef}
-            className="transition-[transform,filter] duration-150"
             style={{
-              position: 'absolute',
-              width: dimensions ? `${dimensions.width}px` : '100%',
-              height: dimensions ? `${dimensions.height}px` : '100%',
-              transform: `scale(${zoom})`,
-              transformOrigin: 'center center',
+              width: '100%',
+              height: '100%',
+              display: 'block',
               touchAction: 'none',
-              cursor: tool === 'select' ? 'default' : tool === 'text' ? 'text' : 'crosshair',
+              cursor: tool === 'select' ? (isPanningState ? 'grabbing' : 'grab') : tool === 'text' ? 'text' : 'crosshair',
             }}
             onPointerDown={startDraw}
             onPointerMove={draw}
@@ -608,81 +659,89 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({ imageUrl, onSave }) 
       {/* ── Floating Glassmorphic Toolbar ── */}
       <div
         className="absolute bottom-5 left-1/2 select-none"
-        style={{ transform: 'translateX(-50%)', zIndex: 10 }}
+        style={{ transform: 'translateX(-50%)', zIndex: 10, maxWidth: '95%', width: 'auto' }}
       >
         <div
           style={{
             display: 'flex',
             alignItems: 'center',
-            gap: '2px',
+            gap: '4px',
             background: 'rgba(255,255,255,0.88)',
             backdropFilter: 'blur(20px) saturate(180%)',
             WebkitBackdropFilter: 'blur(20px) saturate(180%)',
             border: '1px solid rgba(255,255,255,0.7)',
             borderRadius: '100px',
             boxShadow: '0 8px 32px rgba(0,0,0,0.12), 0 1px 0 rgba(255,255,255,0.9) inset',
-            padding: '5px 6px',
+            padding: '4px 6px',
+            height: '40px',
+            boxSizing: 'border-box',
           }}
         >
           {/* Tool group */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '1px', background: 'rgba(0,0,0,0.04)', borderRadius: '100px', padding: '2px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '2px', background: 'rgba(0,0,0,0.04)', borderRadius: '100px', padding: '2px', height: '32px', boxSizing: 'border-box' }}>
             {toolItems.map(({ id, label, icon }) => (
               <button
+                type="button"
                 key={id}
                 onClick={() => setTool(id)}
                 title={label}
                 style={{
                   display: 'flex',
                   alignItems: 'center',
+                  justifyContent: 'center',
                   gap: '6px',
-                  padding: '7px 14px',
+                  height: '28px',
+                  padding: isMobile ? '0 8px' : '0 10px',
                   borderRadius: '100px',
                   border: 'none',
                   cursor: 'pointer',
-                  fontSize: '13px',
-                  fontWeight: 500,
+                  fontSize: '12px',
+                  fontWeight: 600,
                   letterSpacing: '-0.01em',
                   transition: 'all 0.15s ease',
-                  background: tool === id
-                    ? 'white'
-                    : 'transparent',
+                  background: tool === id ? 'white' : 'transparent',
                   color: tool === id ? 'var(--blue)' : '#6b7280',
-                  boxShadow: tool === id ? '0 1px 4px rgba(0,0,0,0.12), 0 0 0 1px rgba(0,0,0,0.06)' : 'none',
+                  boxShadow: tool === id ? '0 1px 3px rgba(0,0,0,0.1), 0 0 0 1px rgba(0,0,0,0.02)' : 'none',
+                  flexShrink: 0,
                 }}
               >
                 {icon}
-                <span>{label}</span>
+                {!isMobile && <span>{label}</span>}
               </button>
             ))}
           </div>
 
           {/* Divider */}
-          <div style={{ width: '1px', height: '22px', background: 'rgba(0,0,0,0.1)', margin: '0 6px', flexShrink: 0 }} />
+          <div style={{ width: '1px', height: '18px', background: 'rgba(0,0,0,0.1)', margin: '0 3px', flexShrink: 0 }} />
 
           {/* Color picker */}
-          <div style={{ position: 'relative' }}>
+          <div style={{ position: 'relative', display: 'flex', alignItems: 'center', height: '32px' }}>
             <button
+              type="button"
               onClick={(e) => { e.stopPropagation(); setShowColorPalette(p => !p); }}
               title="Pen color"
               style={{
                 display: 'flex',
                 alignItems: 'center',
-                gap: '7px',
-                padding: '7px 14px',
+                justifyContent: 'center',
+                gap: '6px',
+                height: '32px',
+                padding: isMobile ? '0 8px' : '0 10px',
                 borderRadius: '100px',
                 border: 'none',
                 background: 'transparent',
                 cursor: 'pointer',
                 color: '#6b7280',
-                fontSize: '13px',
-                fontWeight: 500,
+                fontSize: '12px',
+                fontWeight: 600,
                 transition: 'background 0.15s',
+                flexShrink: 0,
               }}
               onMouseEnter={e => (e.currentTarget.style.background = 'rgba(0,0,0,0.05)')}
               onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
             >
               <span style={{
-                width: '18px', height: '18px',
+                width: '16px', height: '16px',
                 borderRadius: '50%',
                 background: brushColor,
                 border: brushColor === '#ffffff' ? '1.5px solid rgba(0,0,0,0.15)' : '1.5px solid rgba(0,0,0,0.08)',
@@ -690,7 +749,7 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({ imageUrl, onSave }) 
                 flexShrink: 0,
                 display: 'block',
               }} />
-              <span>Color</span>
+              {!isMobile && <span>Color</span>}
             </button>
 
             {/* Color palette popup */}
@@ -747,17 +806,24 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({ imageUrl, onSave }) 
             )}
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '4px 12px' }}>
-            <span style={{ fontSize: '12px', color: '#9ca3af', fontWeight: 500, flexShrink: 0 }}>Size</span>
-            <input
-              type="range"
-              min={2} max={100} value={brushSize}
-              onChange={e => setBrushSize(Number(e.target.value))}
-              style={{ width: '72px', accentColor: 'var(--blue)', cursor: 'pointer' }}
-            />
+          {/* Divider */}
+          <div style={{ width: '1px', height: '18px', background: 'rgba(0,0,0,0.1)', margin: '0 4px', flexShrink: 0 }} />
+
+          {/* Size picker */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '0 6px', height: '32px', boxSizing: 'border-box', flexShrink: 0 }}>
+            {!isMobile && <span style={{ fontSize: '11px', color: '#9ca3af', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.02em', flexShrink: 0 }}>Size</span>}
+            {!isMobile && (
+              <input
+                type="range"
+                min={2} max={100} value={brushSize}
+                onChange={e => setBrushSize(Number(e.target.value))}
+                style={{ width: '60px', accentColor: 'var(--blue)', cursor: 'pointer', flexShrink: 0 }}
+              />
+            )}
             {isEditingSize ? (
               <input
                 type="number"
+                className="no-spin"
                 value={tempSizeInput}
                 autoFocus
                 onChange={(e) => setTempSizeInput(e.target.value)}
@@ -785,16 +851,18 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({ imageUrl, onSave }) 
                   }
                 }}
                 style={{
-                  width: '36px',
+                  width: '32px',
+                  height: '24px',
                   border: '1.5px solid var(--blue)',
                   borderRadius: '4px',
-                  padding: '2px 4px',
-                  fontSize: '12px',
+                  padding: '0 4px',
+                  fontSize: '11px',
                   fontWeight: 600,
                   color: '#374151',
-                  textAlign: 'right',
+                  textAlign: 'center',
                   outline: 'none',
                   background: 'white',
+                  flexShrink: 0,
                 }}
               />
             ) : (
@@ -804,16 +872,20 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({ imageUrl, onSave }) 
                   setIsEditingSize(true);
                 }}
                 style={{
-                  fontSize: '12px',
+                  fontSize: '11px',
                   fontWeight: 600,
                   color: '#374151',
                   minWidth: '22px',
-                  textAlign: 'right',
+                  height: '24px',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
                   cursor: 'pointer',
-                  padding: '2px 4px',
+                  padding: '0 4px',
                   borderRadius: '4px',
                   background: 'rgba(0, 0, 0, 0.05)',
                   transition: 'background 0.15s',
+                  flexShrink: 0,
                 }}
                 title="Click to enter a specific size"
                 onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(0, 0, 0, 0.1)'}
@@ -825,87 +897,167 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({ imageUrl, onSave }) 
           </div>
 
           {/* Divider */}
-          <div style={{ width: '1px', height: '22px', background: 'rgba(0,0,0,0.1)', margin: '0 6px', flexShrink: 0 }} />
+          <div style={{ width: '1px', height: '18px', background: 'rgba(0,0,0,0.1)', margin: '0 3px', flexShrink: 0 }} />
 
           {/* Zoom */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '1px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '1px', height: '32px', flexShrink: 0 }}>
             <button
+              type="button"
               onClick={() => setZoom(z => Math.max(z - 0.25, 0.25))}
-              style={{ padding: '7px 9px', borderRadius: '100px', border: 'none', background: 'transparent', cursor: 'pointer', color: '#6b7280', display: 'flex', transition: 'background 0.15s' }}
+              style={{ width: '28px', height: '28px', borderRadius: '50%', border: 'none', background: 'transparent', cursor: 'pointer', color: '#6b7280', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'background 0.15s', flexShrink: 0 }}
               onMouseEnter={e => (e.currentTarget.style.background = 'rgba(0,0,0,0.05)')}
               onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
             >
-              <Minus size={15} />
+              <Minus size={14} />
             </button>
             <button
+              type="button"
               onClick={handleFitZoom}
               style={{
-                padding: '5px 10px', borderRadius: '100px', border: 'none',
-                background: 'transparent', cursor: 'pointer',
-                fontSize: '12.5px', fontWeight: 600, color: '#374151',
-                minWidth: '48px', textAlign: 'center', fontVariantNumeric: 'tabular-nums',
-                transition: 'background 0.15s',
+                width: '28px', height: '28px', borderRadius: '50%', border: 'none',
+                background: 'transparent', cursor: 'pointer', color: '#6b7280',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                transition: 'background 0.15s', flexShrink: 0,
               }}
-              title="Fit image"
+              title="Fit to screen"
               onMouseEnter={e => (e.currentTarget.style.background = 'rgba(0,0,0,0.05)')}
               onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
             >
-              <ZoomIn size={14} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 4 }} />
-              {Math.round(zoom * 100)}%
+              <ZoomIn size={14} />
             </button>
+            <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', minWidth: isMobile ? '36px' : '48px', height: '28px', flexShrink: 0 }}>
+              {isEditingZoom ? (
+                <input
+                  type="number"
+                  className="no-spin"
+                  value={tempZoomInput}
+                  autoFocus
+                  onChange={(e) => setTempZoomInput(e.target.value)}
+                  onBlur={() => {
+                    setIsEditingZoom(false);
+                    const parsed = parseInt(tempZoomInput, 10);
+                    if (!isNaN(parsed) && parsed >= 10 && parsed <= 500) {
+                      setZoom(parsed / 100);
+                    } else {
+                      setTempZoomInput(String(Math.round(zoom * 100)));
+                    }
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      const parsed = parseInt(tempZoomInput, 10);
+                      if (!isNaN(parsed) && parsed >= 10 && parsed <= 500) {
+                        setZoom(parsed / 100);
+                      } else {
+                        setTempZoomInput(String(Math.round(zoom * 100)));
+                      }
+                      setIsEditingZoom(false);
+                    } else if (e.key === 'Escape') {
+                      setTempZoomInput(String(Math.round(zoom * 100)));
+                      setIsEditingZoom(false);
+                    }
+                  }}
+                  style={{
+                    width: '38px',
+                    height: '22px',
+                    border: '1.5px solid var(--blue)',
+                    borderRadius: '4px',
+                    padding: '0 2px',
+                    fontSize: '11px',
+                    fontWeight: 600,
+                    color: '#374151',
+                    textAlign: 'center',
+                    outline: 'none',
+                    background: 'white',
+                  }}
+                />
+              ) : (
+                <span
+                  onClick={() => {
+                    setTempZoomInput(String(Math.round(zoom * 100)));
+                    setIsEditingZoom(true);
+                  }}
+                  style={{
+                    fontSize: '11px',
+                    fontWeight: 600,
+                    color: '#374151',
+                    cursor: 'pointer',
+                    padding: '2px 4px',
+                    borderRadius: '4px',
+                    background: 'rgba(0, 0, 0, 0.05)',
+                    transition: 'background 0.15s',
+                    fontVariantNumeric: 'tabular-nums',
+                  }}
+                  title="Click to enter zoom percentage"
+                  onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(0, 0, 0, 0.1)'}
+                  onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(0, 0, 0, 0.05)'}
+                >
+                  {Math.round(zoom * 100)}%
+                </span>
+              )}
+            </div>
             <button
+              type="button"
               onClick={() => setZoom(z => Math.min(z + 0.25, 4))}
-              style={{ padding: '7px 9px', borderRadius: '100px', border: 'none', background: 'transparent', cursor: 'pointer', color: '#6b7280', display: 'flex', transition: 'background 0.15s' }}
+              style={{ width: '28px', height: '28px', borderRadius: '50%', border: 'none', background: 'transparent', cursor: 'pointer', color: '#6b7280', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'background 0.15s', flexShrink: 0 }}
               onMouseEnter={e => (e.currentTarget.style.background = 'rgba(0,0,0,0.05)')}
               onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
             >
-              <Plus size={15} />
+              <Plus size={14} />
             </button>
           </div>
 
           {/* Divider */}
-          <div style={{ width: '1px', height: '22px', background: 'rgba(0,0,0,0.1)', margin: '0 4px', flexShrink: 0 }} />
+          <div style={{ width: '1px', height: '18px', background: 'rgba(0,0,0,0.1)', margin: '0 3px', flexShrink: 0 }} />
 
-          {/* Undo */}
-          <button
-            onClick={handleRevert}
-            disabled={!isDirty}
-            title="Undo"
-            style={{
-              padding: '8px 10px', borderRadius: '100px', border: 'none', background: 'transparent',
-              cursor: isDirty ? 'pointer' : 'not-allowed', color: '#6b7280',
-              opacity: isDirty ? 1 : 0.3, display: 'flex', transition: 'background 0.15s, opacity 0.2s',
-            }}
-            onMouseEnter={e => isDirty && (e.currentTarget.style.background = 'rgba(0,0,0,0.05)')}
-            onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
-          >
-            <Undo2 size={17} />
-          </button>
-          <button
-            disabled={true}
-            title="Redo"
-            style={{
-              padding: '8px 10px', borderRadius: '100px', border: 'none', background: 'transparent',
-              cursor: 'not-allowed', color: '#6b7280', opacity: 0.3, display: 'flex',
-            }}
-          >
-            <Redo2 size={17} />
-          </button>
+          {/* Undo / Redo */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '1px', height: '32px', flexShrink: 0 }}>
+            <button
+              type="button"
+              onClick={handleRevert}
+              disabled={!isDirty}
+              title="Undo"
+              style={{
+                width: '28px', height: '28px', borderRadius: '50%', border: 'none', background: 'transparent',
+                cursor: isDirty ? 'pointer' : 'not-allowed', color: '#6b7280',
+                opacity: isDirty ? 1 : 0.3, display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'background 0.15s, opacity 0.2s', flexShrink: 0,
+              }}
+              onMouseEnter={e => isDirty && (e.currentTarget.style.background = 'rgba(0,0,0,0.05)')}
+              onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+            >
+              <Undo2 size={15} />
+            </button>
+            <button
+              type="button"
+              disabled={true}
+              title="Redo"
+              style={{
+                width: '28px', height: '28px', borderRadius: '50%', border: 'none', background: 'transparent',
+                cursor: 'not-allowed', color: '#6b7280', opacity: 0.3, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+              }}
+            >
+              <Redo2 size={15} />
+            </button>
+          </div>
+
+          {/* Divider */}
+          <div style={{ width: '1px', height: '18px', background: 'rgba(0,0,0,0.1)', margin: '0 3px', flexShrink: 0 }} />
 
           {/* Save CTA */}
           <button
+            type="button"
             onClick={handleSave}
             disabled={!isDirty || isSaving}
             style={{
-              marginLeft: '4px',
               display: 'flex',
               alignItems: 'center',
-              gap: '7px',
-              padding: '8px 20px',
+              justifyContent: 'center',
+              gap: '6px',
+              height: '32px',
+              padding: isMobile ? '0 12px' : '0 14px',
               borderRadius: '100px',
               border: 'none',
               cursor: !isDirty || isSaving ? 'not-allowed' : 'pointer',
-              fontSize: '13.5px',
+              fontSize: '12px',
               fontWeight: 600,
               letterSpacing: '-0.01em',
               color: 'white',
@@ -913,15 +1065,15 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({ imageUrl, onSave }) 
                 ? 'linear-gradient(135deg, #10b981, #059669)'
                 : 'linear-gradient(135deg, var(--blue), var(--blue2))',
               boxShadow: isDirty && !isSaving
-                ? '0 2px 12px rgba(34,82,228,0.35), 0 1px 0 rgba(255,255,255,0.2) inset'
+                ? '0 2px 10px rgba(34,82,228,0.25)'
                 : 'none',
               opacity: !isDirty || isSaving ? 0.55 : 1,
-              transition: 'all 0.25s ease',
-              transform: isDirty && !isSaving ? 'scale(1)' : 'scale(0.98)',
+              transition: 'all 0.2s ease',
+              flexShrink: 0,
             }}
           >
-            <Save size={15} style={{ strokeWidth: 2.5 }} />
-            {isSaving ? 'Saving…' : justSaved ? '✓ Saved' : 'Save'}
+            <Save size={14} style={{ strokeWidth: 2.5 }} />
+            {isSaving ? (isMobile ? '' : 'Saving…') : justSaved ? (isMobile ? '✓' : 'Saved') : (isMobile ? '' : 'Save')}
           </button>
         </div>
       </div>
