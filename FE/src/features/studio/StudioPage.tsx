@@ -2,7 +2,7 @@ import React from 'react';
 import {
   Download, X, Layers, RefreshCw, Trash2, Copy, Check,
   Sparkles, ScanLine, Languages, Blend, ImageIcon, Play,
-  PanelLeft, GitBranch, Eye, Paintbrush, Image, GitFork, Split, Braces,
+  PanelLeft, Eye, Paintbrush, Image, GitFork, Split, Braces,
 } from 'lucide-react';
 import { useStudioStore } from '../../stores/useStudioStore';
 import { UploadZone } from './components/UploadZone';
