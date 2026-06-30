@@ -26,22 +26,22 @@ const modelItems = [
   {
     icon: Layers3,
     title: '01 / Text-Background Separation',
-    description: 'The separation stage isolates a clean background image from the source text image using the SeparateEncoder model, preserving original background context.',
+    description: 'The separation stage isolates a clean background image from the source text image using the OCR/Layout analyzer model, preserving original background context.',
   },
   {
     icon: Boxes,
     title: '02 / Visual Feature Quantization',
-    description: 'The quantization stage utilizes a discrete Codebook to represent image features of the text as indices, bridging visual and textual representations.',
+    description: 'The quantization stage utilizes a discrete Layout blocks to represent image features of the text as indices, bridging visual and textual representations.',
   },
   {
     icon: Cpu,
     title: '03 / Neural Code Translation',
-    description: 'The translation stage uses the AuxTITTransformer model to translate quantized source codes directly into target codes, bypassing standard OCR completely.',
+    description: 'The translation stage uses the NLLB translator model to translate quantized source codes directly into target codes, bypassing standard OCR completely.',
   },
   {
     icon: Bot,
     title: '04 / Text-Background Fusion',
-    description: 'The fusion stage composites the reconstructed target text image back onto the clean background layer using the FuseDecoder to produce the final seamlessly translated output.',
+    description: 'The fusion stage composites the reconstructed target text image back onto the clean background layer using the Render planner to produce the final seamlessly translated output.',
   },
 ];
 

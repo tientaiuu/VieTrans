@@ -154,6 +154,33 @@ body.inv #ct {
   opacity: 0.3;
 }
 
+/* Custom cursor bypass for editor */
+body.no-custom-cursor {
+  cursor: auto !important;
+}
+body.no-custom-cursor button,
+body.no-custom-cursor a {
+  cursor: pointer !important;
+}
+body.no-custom-cursor .canvas-editor,
+body.no-custom-cursor .canvas-editor canvas {
+  cursor: auto !important;
+}
+body.no-custom-cursor #cs,
+body.no-custom-cursor #ct {
+  display: none !important;
+}
+
+/* Remove spin buttons from number inputs with class .no-spin */
+input.no-spin::-webkit-outer-spin-button,
+input.no-spin::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input.no-spin[type=number] {
+  -moz-appearance: textfield;
+}
+
 /* ═══ NAVBAR ═══ */
 nav {
   position: fixed;

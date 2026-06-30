@@ -328,3 +328,36 @@ async def get_me(user=Depends(get_current_user)):
         "username": user["email"].split("@")[0],
         "createdAt": user.get("created_at", "").isoformat() if user.get("created_at") else None,
     }
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str = Field(..., alias="currentPassword")
+    new_password: str = Field(..., min_length=8, max_length=128, alias="newPassword")
+
+    class Config:
+        populate_by_name = True
+
+
+@router.post("/change-password", response_model=MessageResponse)
+async def change_password(req: ChangePasswordRequest, user=Depends(get_current_user)):
+    """Change the authenticated user's password after verifying the current one."""
+    if not verify_password(req.current_password, user["password_hash"]):
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "Current password is incorrect",
+        )
+
+    db = get_db()
+    result = await db.users.update_one(
+        {"email": user["email"]},
+        {
+            "$set": {
+                "password_hash": hash_password(req.new_password),
+                "updated_at": datetime.now(timezone.utc),
+            }
+        },
+    )
+    if result.modified_count == 0:
+        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, "Failed to update password")
+
+    return MessageResponse(message="Password changed successfully.")

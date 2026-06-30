@@ -3,8 +3,8 @@ import { CalendarDays, Clock3, Download, Eye, Trash2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAppStore } from '../../stores/useAppStore';
 import { AccountSidebarNav } from './AccountSidebarNav';
-
 import { getHistory, deleteHistory, type HistoryItem, imageUrl } from '../../api';
+import { toast } from '../../stores/useToastStore';
 
 export const ActivityHistoryPage: React.FC = () => {
   const { logout, isLoggedIn, token } = useAppStore();
@@ -58,10 +58,11 @@ export const ActivityHistoryPage: React.FC = () => {
       await deleteHistory(itemToDelete, token);
       setHistories(prev => prev.filter(item => item.id !== itemToDelete));
       setItemToDelete(null);
+      toast.success('Translation deleted');
     } catch (err) {
       console.error('Failed to delete history:', err);
-      // Fallback for unexpected errors
-      alert('Failed to delete history');
+      toast.error('Failed to delete — please try again');
+      setItemToDelete(null);
     }
   };
 
@@ -91,7 +92,21 @@ export const ActivityHistoryPage: React.FC = () => {
 
               <div className="activity-archive-list">
                 {loading ? (
-                  <div className="p-8 text-center text-white/50">Loading history...</div>
+                  // Skeleton UI
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', padding: '12px' }}>
+                    {[1,2,3].map(i => (
+                      <div key={i} style={{
+                        borderRadius: '14px', border: '1px solid var(--ln)',
+                        background: 'var(--paper)', padding: '16px',
+                        display: 'flex', flexDirection: 'column', gap: '12px',
+                      }}>
+                        <div style={{ height: '12px', width: '40%', borderRadius: '6px', background: 'var(--bg2)', animation: 'sk-pulse 1.4s ease infinite' }} />
+                        <div style={{ height: '140px', borderRadius: '10px', background: 'var(--bg2)', animation: 'sk-pulse 1.4s ease infinite 0.1s' }} />
+                        <div style={{ height: '36px', width: '60%', borderRadius: '8px', background: 'var(--bg2)', animation: 'sk-pulse 1.4s ease infinite 0.2s' }} />
+                      </div>
+                    ))}
+                    <style>{`@keyframes sk-pulse{0%,100%{opacity:1}50%{opacity:0.4}}`}</style>
+                  </div>
                 ) : histories.length === 0 ? (
                   <div className="p-8 text-center text-white/50">No translation history found.</div>
                 ) : histories.map((item) => {

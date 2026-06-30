@@ -36,6 +36,14 @@ export const CustomCursor: React.FC = () => {
       } else {
         document.body.classList.remove('inv');
       }
+
+      // Canvas editor native cursor bypass
+      const isInsideEditor = target.closest('.canvas-editor');
+      if (isInsideEditor) {
+        document.body.classList.add('no-custom-cursor');
+      } else {
+        document.body.classList.remove('no-custom-cursor');
+      }
     };
 
     const handleMouseDown = () => document.body.classList.add('clk');
@@ -49,6 +57,7 @@ export const CustomCursor: React.FC = () => {
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mousedown', handleMouseDown);
       window.removeEventListener('mouseup', handleMouseUp);
+      document.body.classList.remove('no-custom-cursor', 'hov', 'clk', 'inv');
     };
   }, []);
 
