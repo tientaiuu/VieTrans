@@ -315,18 +315,16 @@ const navGroups: NavGroup[] = [
 const allItems = navGroups.flatMap((g) => g.items);
 
 // ─── Code Snippets ────────────────────────────────────────────────────────────
-const getUploadCode = (apiKey: string): Record<LangTab, string> => ({
-  curl: `curl -X POST https://api.vietrans.com/v1/upload \\
-  -H "X-API-Key: ${apiKey}" \\
-  -F "file=@/path/to/image.png" \\
-  -F "target_lang=vi"`,
+const getUploadCode = (): Record<LangTab, string> => ({
+  curl: `curl -X POST https://masterdzzzz-vietrans-backend.hf.space/api/upload \\
+  -H "Authorization: Bearer YOUR_JWT_TOKEN" \\
+  -F "file=@/path/to/image.png"`,
   js: `const form = new FormData();
 form.append('file', fileInput.files[0]);
-form.append('target_lang', 'vi');
 
-const res = await fetch('https://api.vietrans.com/v1/upload', {
+const res = await fetch('https://masterdzzzz-vietrans-backend.hf.space/api/upload', {
   method: 'POST',
-  headers: { 'X-API-Key': '${apiKey}' },
+  headers: { 'Authorization': 'Bearer YOUR_JWT_TOKEN' },
   body: form,
 });
 
@@ -335,43 +333,40 @@ console.log(data.stages.fuse);`,
   python: `import requests
 
 resp = requests.post(
-    "https://api.vietrans.com/v1/upload",
-    headers={"X-API-Key": "${apiKey}"},
+    "https://masterdzzzz-vietrans-backend.hf.space/api/upload",
+    headers={"Authorization": "Bearer YOUR_JWT_TOKEN"},
     files={"file": open("image.png", "rb")},
-    data={"target_lang": "vi"},
 )
 print(resp.json())`,
   php: `<?php
-$curl = curl_init('https://api.vietrans.com/v1/upload');
+$curl = curl_init('https://masterdzzzz-vietrans-backend.hf.space/api/upload');
 curl_setopt_array($curl, [
   CURLOPT_RETURNTRANSFER => true,
   CURLOPT_POST => true,
-  CURLOPT_HTTPHEADER => ['X-API-Key: ${apiKey}'],
+  CURLOPT_HTTPHEADER => ['Authorization: Bearer YOUR_JWT_TOKEN'],
   CURLOPT_POSTFIELDS => [
-    'file'        => new CURLFile('/path/to/image.png'),
-    'target_lang' => 'vi',
+    'file' => new CURLFile('/path/to/image.png'),
   ],
 ]);
 echo curl_exec($curl);`,
 });
 
-const getHistoryCode = (apiKey: string): Record<LangTab, string> => ({
-  curl: `curl "https://api.vietrans.com/v1/history?page=1&limit=10" \\
-  -H "X-API-Key: ${apiKey}"`,
+const getHistoryCode = (): Record<LangTab, string> => ({
+  curl: `curl "https://masterdzzzz-vietrans-backend.hf.space/api/history" \\
+  -H "Authorization: Bearer YOUR_JWT_TOKEN"`,
   js: `const res = await fetch(
-  'https://api.vietrans.com/v1/history?page=1&limit=10',
-  { headers: { 'X-API-Key': '${apiKey}' } }
+  'https://masterdzzzz-vietrans-backend.hf.space/api/history',
+  { headers: { 'Authorization': 'Bearer YOUR_JWT_TOKEN' } }
 );
-const { data, pagination } = await res.json();`,
+const histories = await res.json();`,
   python: `resp = requests.get(
-    "https://api.vietrans.com/v1/history",
-    headers={"X-API-Key": "${apiKey}"},
-    params={"page": 1, "limit": 10},
+    "https://masterdzzzz-vietrans-backend.hf.space/api/history",
+    headers={"Authorization": "Bearer YOUR_JWT_TOKEN"},
 )`,
   php: `<?php
-$url = 'https://api.vietrans.com/v1/history?page=1&limit=10';
+$url = 'https://masterdzzzz-vietrans-backend.hf.space/api/history';
 $curl = curl_init($url);
-curl_setopt($curl, CURLOPT_HTTPHEADER, ['X-API-Key: ${apiKey}']);
+curl_setopt($curl, CURLOPT_HTTPHEADER, ['Authorization: Bearer YOUR_JWT_TOKEN']);
 echo curl_exec($curl);`,
 });
 
@@ -900,8 +895,8 @@ export const DocsPage: React.FC = () => {
     }))
     .filter((g) => g.items.length > 0);
 
-  const uploadCode = getUploadCode(apiKey);
-  const historyCode = getHistoryCode(apiKey);
+  const uploadCode = getUploadCode();
+  const historyCode = getHistoryCode();
 
   // ── Sidebar content ──────────────────────────────────────────────────────
   const sidebarContent = (
@@ -1105,8 +1100,8 @@ export const DocsPage: React.FC = () => {
               lineHeight: 1.8, color: 'var(--ink3)',
               maxWidth: '560px', marginBottom: '36px',
             }}>
-              A single REST endpoint runs the 4-stage DeBackX model: separating text, quantizing visual features,
-              translating codes, and fusing the translated text back onto the clean backdrop. Averaged under 1.2&nbsp;s.
+              A REST upload endpoint runs the current image translation pipeline: OCR, translation,
+              text removal, and rendering the Vietnamese result back onto the image.
             </p>
 
             {/* CTA Buttons */}
@@ -1212,10 +1207,10 @@ export const DocsPage: React.FC = () => {
             {/* Stat chips */}
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px' }}>
               {[
-                { label: '98.2% OCR accuracy', cls: 'docs-chip-green' },
-                { label: '<1.2 s avg latency', cls: 'docs-chip-blue' },
-                { label: '40+ languages', cls: 'docs-chip-gold' },
-                { label: '99.9% uptime SLA', cls: 'docs-chip-purple' },
+                { label: 'OCR + NLLB pipeline', cls: 'docs-chip-green' },
+                { label: 'Image stage outputs', cls: 'docs-chip-blue' },
+                { label: 'EN to VI workflow', cls: 'docs-chip-gold' },
+                { label: 'Layout-aware rendering', cls: 'docs-chip-purple' },
               ].map((s) => (
                 <span key={s.label} className={s.cls} style={{
                   fontFamily: "'JetBrains Mono', 'Space Mono', monospace",
@@ -1238,17 +1233,17 @@ export const DocsPage: React.FC = () => {
           <section style={{ marginBottom: '72px' }}>
             <SectionHeading id="overview" eyebrow="01 — Introduction" label="Overview" refFn={setRef('overview')} />
             <p style={{ fontSize: '15px', fontFamily: "'Lora', Georgia, serif", lineHeight: 1.85, color: 'var(--ink3)', marginBottom: '28px' }}>
-              VieTrans is built on the <strong>DeBackX</strong> end-to-end model, a multi-stage translation 
+              VieTrans is built on the <strong>VieTrans</strong> end-to-end model, a multi-stage translation 
               pipeline that splits the task into text-background separation, discrete visual codebook quantization, 
               direct neural text translation, and seamless final layer fusion — requiring zero external OCR or heuristic font matching.
             </p>
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '14px' }}>
               {[
-                { step: '01', icon: '◎', title: 'Background Separation', sub: 'SeparateEncoder', desc: 'Isolates source text layers from complex backgrounds, producing clean background segments.' },
-                { step: '02', icon: '⟳', title: 'Visual Quantization', sub: 'Codebook (8192 Size)', desc: 'Encodes and quantizes source visual text features into structured discrete codes representing font and layout.' },
-                { step: '03', icon: '◈', title: 'Neural Translation', sub: 'AuxTITTransformer', desc: 'Translates source visual English codes directly into Vietnamese codes, completely bypassing OCR text extraction.' },
-                { step: '04', icon: '▣', title: 'Seamless Fusion', sub: 'FuseDecoder', desc: 'Composites the reconstructed target Vietnamese text image back onto the clean backdrop layer seamlessly.' },
+                { step: '01', icon: '◎', title: 'Background Separation', sub: 'OCR/Layout analyzer', desc: 'Isolates source text layers from complex backgrounds, producing clean background segments.' },
+                { step: '02', icon: '⟳', title: 'Visual Quantization', sub: 'Layout blocks (8192 Size)', desc: 'Encodes and quantizes source visual text features into structured discrete codes representing font and layout.' },
+                { step: '03', icon: '◈', title: 'Neural Translation', sub: 'NLLB translator', desc: 'Translates source visual English codes directly into Vietnamese codes, completely bypassing OCR text extraction.' },
+                { step: '04', icon: '▣', title: 'Seamless Fusion', sub: 'Render planner', desc: 'Composites the reconstructed target Vietnamese text image back onto the clean backdrop layer seamlessly.' },
               ].map((c) => (
                 <div key={c.step} className="docs-pipeline-card">
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
@@ -1286,7 +1281,7 @@ export const DocsPage: React.FC = () => {
             <p style={{ fontSize: '15px', fontFamily: "'Lora', Georgia, serif", lineHeight: 1.85, color: 'var(--ink3)', marginBottom: '28px' }}>
               Make your first API call in under 60 seconds. The example below sends an image and receives a fully translated output image URL.
             </p>
-            <CodeBlock id="quickstart" title="POST /v1/upload" tabs={['curl', 'js', 'python', 'php']}
+            <CodeBlock id="quickstart" title="POST /api/upload" tabs={['curl', 'js', 'python', 'php']}
               snippets={uploadCode} activeTab={codeTabs['quickstart']}
               onTabChange={(tab) => handleTabChange('quickstart', tab)}
               copiedStates={copiedStates} onCopy={copy} />
@@ -1295,8 +1290,8 @@ export const DocsPage: React.FC = () => {
   "matched_id": "vt_res_9f3c02a1e847",
   "status": "done",
   "stages": {
-    "input":  "/v1/images/input/vt_res_9f3c02a1e847.png",
-    "fuse":   "/v1/images/fuse/vt_res_9f3c02a1e847.png"
+    "input":  "/api/images/input/vt_res_9f3c02a1e847",
+    "fuse":   "/api/images/fuse/vt_res_9f3c02a1e847"
   },
   "ocr_confidence": 0.985,
   "translated_regions": 12,
@@ -1389,15 +1384,12 @@ export const DocsPage: React.FC = () => {
 
           {/* ── PROCESS IMAGE ───────────────────────────────────────── */}
           <section style={{ marginBottom: '72px' }}>
-            <EndpointHeader id="upload" method="POST" path="/v1/upload" title="Process Image" refFn={setRef('upload')} />
+            <EndpointHeader id="upload" method="POST" path="/api/upload" title="Process Image" refFn={setRef('upload')} />
             <p style={{ fontSize: '15px', fontFamily: "'Lora', Georgia, serif", lineHeight: 1.85, color: 'var(--ink3)', marginBottom: '28px' }}>
-              The primary endpoint. Submits an image through the full four-stage DeBackX model: text-background separation, discrete visual codebook quantization, direct neural translation, and seamless layer fusion.
+              The primary endpoint. Submits an image through the full four-stage VieTrans model: text-background separation, discrete visual codebook quantization, direct neural translation, and seamless layer fusion.
             </p>
             <ParamTable params={[
               { name: 'file', type: 'binary', required: true, description: 'Image file. Accepted: .png, .jpg, .jpeg, .webp. Max size: 10 MB.' },
-              { name: 'target_lang', type: 'string', required: true, description: 'ISO-639-1 code for the target language (e.g. vi, en, ja, zh).' },
-              { name: 'source_lang', type: 'string', required: false, description: 'Source language code. If omitted, the engine auto-detects the input language.' },
-              { name: 'improve_fonts', type: 'boolean', required: false, description: 'Defaults to true. Enables neural font-matching for weight, slant, and scale.' },
             ]} />
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: '14px' }}>
               <CodeBlock id="upload" title="Request" tabs={['curl', 'js', 'python', 'php']}
@@ -1408,8 +1400,8 @@ export const DocsPage: React.FC = () => {
   "matched_id": "vt_res_9f3c02a1e847",
   "status": "done",
   "stages": {
-    "input": "/v1/images/input/...",
-    "fuse":  "/v1/images/fuse/..."
+    "input": "/api/images/input/...",
+    "fuse":  "/api/images/fuse/..."
   },
   "ocr_confidence": 0.985,
   "translated_regions": 12,
@@ -1420,7 +1412,7 @@ export const DocsPage: React.FC = () => {
 
           {/* ── ERASE & INPAINT ──────────────────────────────────────── */}
           <section style={{ marginBottom: '72px', paddingTop: '40px', borderTop: '1px solid var(--docs-border)' }}>
-            <EndpointHeader id="inpainting" method="POST" path="/v1/inpainting" title="Erase & Inpaint Background" refFn={setRef('inpainting')} />
+            <EndpointHeader id="inpainting" method="POST" path="/api/inpainting" title="Erase & Inpaint Background" refFn={setRef('inpainting')} />
             <p style={{ fontSize: '15px', fontFamily: "'Lora', Georgia, serif", lineHeight: 1.85, color: 'var(--ink3)', marginBottom: '28px' }}>
               Run background reconstruction without translation. Useful for pre-processing images or removing text before manual editing.
             </p>
@@ -1431,9 +1423,9 @@ export const DocsPage: React.FC = () => {
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: '14px' }}>
               <CodeBlock id="inpainting" title="Request" tabs={['curl', 'js', 'python']}
                 snippets={{
-                  curl: `curl -X POST https://api.vietrans.com/v1/inpainting \\\n  -H "X-API-Key: ${apiKey}" \\\n  -F "file=@/path/to/image.png"`,
-                  js: `const form = new FormData();\nform.append('file', fileInput.files[0]);\n\nconst res = await fetch(\n  'https://api.vietrans.com/v1/inpainting',\n  { method: 'POST', headers: { 'X-API-Key': '${apiKey}' }, body: form }\n);`,
-                  python: `resp = requests.post(\n    "https://api.vietrans.com/v1/inpainting",\n    headers={"X-API-Key": "${apiKey}"},\n    files={"file": open("image.png", "rb")},\n)`,
+                  curl: `curl -X POST https://masterdzzzz-vietrans-backend.hf.space/api/inpainting \\\n  -H "Authorization: Bearer YOUR_JWT_TOKEN" \\\n  -F "file=@/path/to/image.png"`,
+                  js: `const form = new FormData();\nform.append('file', fileInput.files[0]);\n\nconst res = await fetch(\n  'https://masterdzzzz-vietrans-backend.hf.space/api/inpainting',\n  { method: 'POST', headers: { 'Authorization': 'Bearer YOUR_JWT_TOKEN' }, body: form }\n);`,
+                  python: `resp = requests.post(\n    "https://masterdzzzz-vietrans-backend.hf.space/api/inpainting",\n    headers={"Authorization": "Bearer YOUR_JWT_TOKEN"},\n    files={"file": open("image.png", "rb")},\n)`,
                   php: '',
                 }}
                 activeTab={codeTabs['inpainting']}
@@ -1442,14 +1434,14 @@ export const DocsPage: React.FC = () => {
               <ResponseBlock title="Response · 200 OK" status="200 OK" statusColor="green" json={`{
   "matched_id": "vt_inp_c8d4f2a11092",
   "status": "done",
-  "inpainted_url": "/v1/images/fuse/vt_inp_c8d4f2a11092.png"
+  "inpainted_url": "/api/images/fuse/vt_inp_c8d4f2a11092"
 }`} />
             </div>
           </section>
 
           {/* ── GET HISTORY ─────────────────────────────────────────── */}
           <section style={{ marginBottom: '72px', paddingTop: '40px', borderTop: '1px solid var(--docs-border)' }}>
-            <EndpointHeader id="history" method="GET" path="/v1/history" title="Get Translation History" refFn={setRef('history')} />
+            <EndpointHeader id="history" method="GET" path="/api/history" title="Get Translation History" refFn={setRef('history')} />
             <p style={{ fontSize: '15px', fontFamily: "'Lora', Georgia, serif", lineHeight: 1.85, color: 'var(--ink3)', marginBottom: '28px' }}>
               Retrieve a paginated list of your past translation jobs, ordered by creation date descending.
             </p>
@@ -1526,21 +1518,21 @@ export const DocsPage: React.FC = () => {
             </div>
           </section>
 
-          {/* ── SDKs ─────────────────────────────────────────────────── */}
+          {/* ── REST Examples ─────────────────────────────────────────── */}
           <section style={{ marginBottom: '72px' }}>
-            <SectionHeading id="sdks" label="SDKs & Libraries" refFn={setRef('sdks')} />
+            <SectionHeading id="sdks" label="REST Examples" refFn={setRef('sdks')} />
             <p style={{ fontSize: '15px', fontFamily: "'Lora', Georgia, serif", lineHeight: 1.85, color: 'var(--ink3)', marginBottom: '28px' }}>
-              Official client libraries wrap the REST API with typed interfaces and automatic retries.
+              Use the REST endpoint directly from your app or automation. Official SDK packages are not published yet.
             </p>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '14px' }}>
               {[
                 {
-                  icon: '🐍', pkg: 'vietrans-python', ver: 'v1.2.4 · pip',
-                  code: `# pip install vietrans-sdk\nfrom vietrans import VieTransClient\n\nclient = VieTransClient(api_key="${apiKey}")\nresult = client.translate(\n    file_path="hero.png",\n    target_lang="vi",\n)\nprint(result.stages.fuse_url)`,
+                  icon: '🐍', pkg: 'Python requests', ver: 'REST upload',
+                  code: `import requests\n\nwith open("hero.png", "rb") as f:\n    res = requests.post(\n        "https://your-api.example.com/api/upload",\n        files={"file": f},\n        headers={"Authorization": "Bearer ${apiKey}"},\n    )\nres.raise_for_status()\nprint(res.json()["stages"]["fuse"])`,
                 },
                 {
-                  icon: '⬡', pkg: '@vietrans/sdk', ver: 'v2.0.1 · npm',
-                  code: `// npm install @vietrans/sdk\nimport { VieTrans } from '@vietrans/sdk';\nimport fs from 'fs';\n\nconst vt = new VieTrans({ apiKey: '${apiKey}' });\n\nconst res = await vt.translate({\n  image: fs.createReadStream('hero.png'),\n  targetLang: 'vi',\n});\nconsole.log(res.stages.fuse);`,
+                  icon: '⬡', pkg: 'JavaScript fetch', ver: 'REST upload',
+                  code: `const form = new FormData();\nform.append("file", fileInput.files[0]);\n\nconst res = await fetch("https://your-api.example.com/api/upload", {\n  method: "POST",\n  headers: { Authorization: "Bearer ${apiKey}" },\n  body: form,\n});\n\nif (!res.ok) throw new Error(await res.text());\nconst data = await res.json();\nconsole.log(data.stages.fuse);`,
                 },
               ].map((sdk) => (
                 <div key={sdk.pkg} className="docs-code-block">

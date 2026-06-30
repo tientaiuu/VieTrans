@@ -11,6 +11,7 @@ Cách dùng decorator @spaces.GPU:
 from __future__ import annotations
 
 import os
+import json
 import uuid
 import shutil
 import tempfile
@@ -19,7 +20,7 @@ from pathlib import Path
 # ─── Thiết lập biến môi trường TRƯỚC KHI import inference ────────────────────
 # Đổi thành HuggingFace Hub ID model đã fine-tune của bạn.
 # Ví dụ: "tientaiuu/mt-nllb-1p3b-en-vi"  hoặc dùng repo local path.
-os.environ.setdefault("NLLB_MODEL_PATH", os.getenv("NLLB_MODEL_PATH", "facebook/nllb-200-1.3B"))
+os.environ.setdefault("NLLB_MODEL_PATH", os.getenv("NLLB_MODEL_PATH", "masterdzzzz/mt-nllb-1p3b-en-vi"))
 os.environ.setdefault("NLLB_SRC_LANG",   "eng_Latn")
 os.environ.setdefault("NLLB_TGT_LANG",   "vie_Latn")
 os.environ.setdefault("OCR_MIN_CONFIDENCE", "0.5")
@@ -114,6 +115,29 @@ TEMP_ROOT = Path(tempfile.gettempdir()) / "vietrans_space"
 TEMP_ROOT.mkdir(parents=True, exist_ok=True)
 
 
+def _read_text_file(path: str) -> str:
+    try:
+        return Path(path).read_text(encoding="utf-8").strip()
+    except Exception:
+        return ""
+
+
+def _read_json_file(path: str) -> dict:
+    try:
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def _format_qa_suffix(report: dict) -> str:
+    if not report or not report.get("has_leftover_english"):
+        return ""
+    count = int(report.get("issue_count") or 0)
+    severity = report.get("severity", "medium")
+    return f"\n\n⚠️ QA: còn nghi vấn tiếng Anh sau dịch ({count} issue, severity={severity})."
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # Hàm suy luận — bọc bởi @spaces.GPU để ZeroGPU cấp phát GPU cho NLLB
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -122,12 +146,12 @@ TEMP_ROOT.mkdir(parents=True, exist_ok=True)
 def translate_image(input_image):
     """
     Nhận PIL.Image đầu vào → chạy pipeline → trả về:
-      (fuse_img, text_en_img, text_vi_img, back_img, translated_text)
+      (fuse_img, text_en_img, text_vi_img, back_img, original_img, ocr_text, translated_text)
     """
     from PIL import Image as PILImage
 
     if input_image is None:
-        return None, None, None, None, "⚠️ Vui lòng tải ảnh lên trước."
+        return None, None, None, None, None, "", "⚠️ Vui lòng tải ảnh lên trước."
 
     # Tạo thư mục output riêng cho mỗi request
     uid     = str(uuid.uuid4())
@@ -149,7 +173,7 @@ def translate_image(input_image):
     except Exception as e:
         import traceback
         traceback.print_exc()
-        return None, None, None, None, f"❌ Lỗi pipeline: {e}"
+        return None, None, None, None, None, "", f"❌ Lỗi pipeline: {e}"
 
     # Đọc các ảnh kết quả
     def _load(name):
@@ -160,10 +184,107 @@ def translate_image(input_image):
     text_en_img = _load("text_en.jpg")
     text_vi_img = _load("text_vi.jpg")
     back_img    = _load("back.jpg")
+    original_img = _load("input.jpg")
+    ocr_text = _read_text_file(os.path.join(out_dir, "ocr.txt"))
+    qa_report = _read_json_file(os.path.join(out_dir, "qa.json"))
 
     result_label = f"✅ Dịch thành công!\n\n{translated_text}" if translated_text else "⚠️ Không phát hiện chữ tiếng Anh trong ảnh."
+    result_label += _format_qa_suffix(qa_report)
 
-    return fuse_img, text_en_img, text_vi_img, back_img, result_label
+    return fuse_img, text_en_img, text_vi_img, back_img, original_img, ocr_text, result_label
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Streaming version — yields partial results after each text line is translated
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@spaces.GPU
+def translate_image_stream(input_image):
+    """
+    Generator version of translate_image.
+    Yields (fuse_partial, text_en_img, text_vi_img, back_img, original_img, ocr_text, status_text)
+    after each pipeline event so Gradio can update the UI incrementally.
+    """
+    from PIL import Image as PILImage
+    import io as _io
+
+    if input_image is None:
+        yield None, None, None, None, None, "", "⚠️ Vui lòng tải ảnh lên trước."
+        return
+
+    uid     = str(uuid.uuid4())
+    out_dir = str(TEMP_ROOT / uid)
+    os.makedirs(out_dir, exist_ok=True)
+
+    input_path = os.path.join(out_dir, "input.jpg")
+    if isinstance(input_image, PILImage.Image):
+        input_image.convert("RGB").save(input_path, "JPEG", quality=95)
+    else:
+        import numpy as np_mod
+        PILImage.fromarray(input_image).convert("RGB").save(input_path, "JPEG", quality=95)
+    original_pil = PILImage.open(input_path).convert("RGB")
+
+    # State accumulators
+    text_en_pil = None
+    back_pil    = None
+    fuse_pil    = None
+    text_vi_pil = None
+    ocr_text    = ""
+    status      = "⏳ Đang khởi động pipeline..."
+
+    try:
+        for event in dbx_pipeline.run_inference_streaming(input_path, out_dir):
+            etype = event.get("event", "")
+
+            if etype == "stage":
+                status = f"⏳ {event.get('message', '')}"
+                yield fuse_pil, text_en_pil, text_vi_pil, back_pil, original_pil, ocr_text, status
+
+            elif etype == "ocr_done":
+                text_en_pil = event.get("text_en_pil")
+                ocr_text = event.get("ocr_text", ocr_text)
+                status = f"🔍 OCR xong — phát hiện {event.get('count', 0)} vùng cần dịch"
+                yield fuse_pil, text_en_pil, text_vi_pil, back_pil, original_pil, ocr_text, status
+
+            elif etype == "back_done":
+                back_pil = event.get("back_pil")
+                # Show background as initial fuse placeholder
+                fuse_pil = back_pil
+                status = "🖼️ Đã xóa chữ gốc — bắt đầu dịch từng dòng..."
+                yield fuse_pil, text_en_pil, text_vi_pil, back_pil, original_pil, ocr_text, status
+
+            elif etype == "translating":
+                idx   = event.get("index", 0)
+                total = event.get("total", 1)
+                en    = event.get("text_en", "")
+                status = f"🔤 Đang dịch [{idx + 1}/{total}]: \"{en[:40]}{'…' if len(en) > 40 else ''}\""
+                yield fuse_pil, text_en_pil, text_vi_pil, back_pil, original_pil, ocr_text, status
+
+            elif etype == "line_done":
+                idx   = event.get("index", 0)
+                total = event.get("total", 1)
+                en    = event.get("text_en", "")
+                vi    = event.get("text_vi", "")
+                fuse_pil = event.get("partial_fuse_pil", fuse_pil)
+                status = f"✏️ [{idx + 1}/{total}] \"{en[:30]}\" → \"{vi[:30]}\""
+                yield fuse_pil, text_en_pil, text_vi_pil, back_pil, original_pil, ocr_text, status
+
+            elif etype == "done":
+                fuse_pil    = event.get("fuse_pil",    fuse_pil)
+                text_en_pil = event.get("text_en_pil", text_en_pil)
+                text_vi_pil = event.get("text_vi_pil", text_vi_pil)
+                back_pil    = event.get("back_pil",    back_pil)
+                tit         = event.get("tit", "")
+                ocr_text    = event.get("ocr_text", ocr_text)
+                qa_report   = event.get("qa") or _read_json_file(os.path.join(out_dir, "qa.json"))
+                status = f"✅ Dịch thành công!\n\n{tit}" if tit else "⚠️ Không phát hiện chữ tiếng Anh trong ảnh."
+                status += _format_qa_suffix(qa_report)
+                yield fuse_pil, text_en_pil, text_vi_pil, back_pil, original_pil, ocr_text, status
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        yield None, None, None, None, original_pil, ocr_text, f"❌ Lỗi pipeline: {e}"
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -216,7 +337,9 @@ with gr.Blocks(css=_CSS, theme=gr.themes.Soft(), title="VieTrans — In-Image Tr
                 height=400,
             )
             with gr.Row():
-                btn_translate = gr.Button("🚀 Dịch ảnh", variant="primary", scale=3)
+                btn_stream    = gr.Button("⚡ Dịch (streaming)", variant="primary", scale=3)
+                btn_translate = gr.Button("🚀 Dịch (batch)", variant="secondary", scale=2)
+                btn_original  = gr.Button("👁️ Ảnh gốc", variant="secondary", scale=1)
                 btn_clear     = gr.ClearButton(
                     components=[input_img],
                     value="🗑️ Xóa",
@@ -232,14 +355,25 @@ with gr.Blocks(css=_CSS, theme=gr.themes.Soft(), title="VieTrans — In-Image Tr
                 elem_classes=["output-panel"],
             )
             translated_text = gr.Textbox(
-                label="📝 Văn bản dịch tổng hợp",
-                lines=3,
+                label="📝 Trạng thái / Văn bản dịch",
+                lines=4,
                 interactive=False,
+            )
+            ocr_text = gr.Textbox(
+                label="📋 Văn bản trong ảnh (OCR)",
+                lines=4,
+                interactive=False,
+                show_copy_button=True,
             )
 
     # ── Bước trung gian (Accordion) ───────────────────────────────────────────
     with gr.Accordion("🔬 Các bước xử lý trung gian", open=False):
         with gr.Row():
+            output_original = gr.Image(
+                type="pil",
+                label="👁️ Ảnh gốc",
+                height=280,
+            )
             output_text_en = gr.Image(
                 type="pil",
                 label="🔴 Stage 1 — Phát hiện vùng chữ EN",
@@ -266,10 +400,25 @@ with gr.Blocks(css=_CSS, theme=gr.themes.Soft(), title="VieTrans — In-Image Tr
     # )
 
     # ── Kết nối sự kiện ───────────────────────────────────────────────────────
+    btn_original.click(
+        fn=lambda img: img,
+        inputs=[input_img],
+        outputs=[output_original],
+    )
+
+    # Streaming (line-by-line, used by FastAPI proxy via gradio_client)
+    btn_stream.click(
+        fn=translate_image_stream,
+        inputs=[input_img],
+        outputs=[output_fuse, output_text_en, output_text_vi, output_back, output_original, ocr_text, translated_text],
+        api_name="translate_stream",
+    )
+
+    # Batch (full pipeline, backward-compatible)
     btn_translate.click(
         fn=translate_image,
         inputs=[input_img],
-        outputs=[output_fuse, output_text_en, output_text_vi, output_back, translated_text],
+        outputs=[output_fuse, output_text_en, output_text_vi, output_back, output_original, ocr_text, translated_text],
         api_name="translate",
     )
 

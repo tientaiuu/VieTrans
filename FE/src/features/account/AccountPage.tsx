@@ -1,12 +1,14 @@
 import React from 'react';
 import { useAppStore } from '../../stores/useAppStore';
 import { useNavigate } from 'react-router-dom';
-import { BadgeCheck, Plus } from 'lucide-react';
+import { BadgeCheck, Plus, Eye, EyeOff, Loader2 } from 'lucide-react';
 import { getFirstName } from '../../utils/user';
 import { AccountSidebarNav } from './AccountSidebarNav';
+import { changePassword } from '../../api';
+import { toast } from '../../stores/useToastStore';
 
 export const AccountPage: React.FC = () => {
-  const { logout, userFullName, userEmail, userUsername, userAvatar, setUserAvatar, updateProfile, isLoggedIn } = useAppStore();
+  const { logout, userFullName, userEmail, userUsername, userAvatar, setUserAvatar, updateProfile, isLoggedIn, token } = useAppStore();
   const navigate = useNavigate();
   const fileInputRef = React.useRef<HTMLInputElement | null>(null);
   const displayName = userFullName || 'Guest User';
@@ -16,6 +18,16 @@ export const AccountPage: React.FC = () => {
   const username = userUsername || (userEmail ? userEmail.split('@')[0] : 'guest');
   const [draftFullName, setDraftFullName] = React.useState(displayName);
   const [draftUsername, setDraftUsername] = React.useState(username);
+
+  // Change password form
+  const [showChangePw, setShowChangePw] = React.useState(false);
+  const [currentPw, setCurrentPw] = React.useState('');
+  const [newPw, setNewPw] = React.useState('');
+  const [confirmPw, setConfirmPw] = React.useState('');
+  const [showCurrent, setShowCurrent] = React.useState(false);
+  const [showNew, setShowNew] = React.useState(false);
+  const [pwLoading, setPwLoading] = React.useState(false);
+  const [pwError, setPwError] = React.useState('');
 
   React.useEffect(() => {
     if (!isLoggedIn) {
@@ -58,6 +70,29 @@ export const AccountPage: React.FC = () => {
       fullName: draftFullName.trim() || 'Guest User',
       username: draftUsername.trim().replace(/^@+/, '') || 'guest',
     });
+    toast.success('Profile saved successfully');
+  };
+
+  const handleChangePassword = async () => {
+    setPwError('');
+    if (!currentPw) { setPwError('Please enter your current password'); return; }
+    if (newPw.length < 8) { setPwError('New password must be at least 8 characters'); return; }
+    if (newPw !== confirmPw) { setPwError('Passwords do not match'); return; }
+    if (!token) { setPwError('Not authenticated'); return; }
+
+    setPwLoading(true);
+    try {
+      await changePassword(token, currentPw, newPw);
+      toast.success('Password changed successfully');
+      setCurrentPw(''); setNewPw(''); setConfirmPw('');
+      setShowChangePw(false);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Change password failed';
+      setPwError(msg);
+      toast.error(msg);
+    } finally {
+      setPwLoading(false);
+    }
   };
 
   return (
@@ -167,9 +202,110 @@ export const AccountPage: React.FC = () => {
                 </div>
 
                 <div className="account-actions">
-                  <div className="account-inline-line" aria-label="Change password">
-                    <span>Change password</span>
-                  </div>
+                  {/* Change password section */}
+                  {!showChangePw ? (
+                    <div
+                      className="account-inline-line"
+                      role="button"
+                      tabIndex={0}
+                      aria-label="Change password"
+                      onClick={() => setShowChangePw(true)}
+                      onKeyDown={e => e.key === 'Enter' && setShowChangePw(true)}
+                      style={{ cursor: 'pointer' }}
+                    >
+                      <span>Change password</span>
+                      <span style={{ fontSize: '11px', color: 'var(--blue)', fontWeight: 600, marginLeft: 'auto' }}>Change →</span>
+                    </div>
+                  ) : (
+                    <div style={{
+                      borderRadius: '12px',
+                      border: '1px solid var(--ln)',
+                      background: 'var(--bg)',
+                      padding: '16px',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '12px',
+                    }}>
+                      <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--ink)', marginBottom: '4px' }}>Change Password</div>
+
+                      {/* Current password */}
+                      <div>
+                        <label className="account-info-label" style={{ display: 'block', marginBottom: '6px' }}>Current password</label>
+                        <div className="auth-input-wrap">
+                          <input
+                            className="auth-input account-info-input"
+                            type={showCurrent ? 'text' : 'password'}
+                            value={currentPw}
+                            onChange={e => setCurrentPw(e.target.value)}
+                            placeholder="Enter current password"
+                            disabled={pwLoading}
+                          />
+                          <button type="button" className="auth-visibility" onClick={() => setShowCurrent(v => !v)} aria-label="Toggle">
+                            {showCurrent ? <EyeOff size={16} /> : <Eye size={16} />}
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* New password */}
+                      <div>
+                        <label className="account-info-label" style={{ display: 'block', marginBottom: '6px' }}>New password</label>
+                        <div className="auth-input-wrap">
+                          <input
+                            className="auth-input account-info-input"
+                            type={showNew ? 'text' : 'password'}
+                            value={newPw}
+                            onChange={e => setNewPw(e.target.value)}
+                            placeholder="Min. 8 characters"
+                            disabled={pwLoading}
+                          />
+                          <button type="button" className="auth-visibility" onClick={() => setShowNew(v => !v)} aria-label="Toggle">
+                            {showNew ? <EyeOff size={16} /> : <Eye size={16} />}
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Confirm password */}
+                      <div>
+                        <label className="account-info-label" style={{ display: 'block', marginBottom: '6px' }}>Confirm new password</label>
+                        <input
+                          className="auth-input account-info-input"
+                          type="password"
+                          value={confirmPw}
+                          onChange={e => setConfirmPw(e.target.value)}
+                          placeholder="Repeat new password"
+                          disabled={pwLoading}
+                        />
+                      </div>
+
+                      {pwError && (
+                        <div style={{ fontSize: '12px', color: '#ef4444', fontWeight: 500 }}>{pwError}</div>
+                      )}
+
+                      <div style={{ display: 'flex', gap: '8px' }}>
+                        <button
+                          type="button"
+                          className="account-save-btn"
+                          onClick={handleChangePassword}
+                          disabled={pwLoading}
+                          style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
+                        >
+                          {pwLoading ? <Loader2 size={14} style={{ animation: 'spin 0.7s linear infinite' }} /> : null}
+                          {pwLoading ? 'Saving...' : 'Update Password'}
+                        </button>
+                        <button
+                          type="button"
+                          style={{
+                            padding: '10px 16px', borderRadius: '10px',
+                            border: '1px solid var(--ln)', background: 'transparent',
+                            color: 'var(--ink4)', cursor: 'pointer', fontSize: '13px',
+                          }}
+                          onClick={() => { setShowChangePw(false); setCurrentPw(''); setNewPw(''); setConfirmPw(''); setPwError(''); }}
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 <div className="account-save-row">

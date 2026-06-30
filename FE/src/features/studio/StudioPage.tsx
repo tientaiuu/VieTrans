@@ -2,13 +2,14 @@ import React from 'react';
 import {
   Download, X, Layers, RefreshCw, Trash2, Copy, Check,
   Sparkles, ScanLine, Languages, Blend, ImageIcon, Play,
-  PanelLeft,
+  PanelLeft, GitBranch, Eye,
 } from 'lucide-react';
 import { useStudioStore } from '../../stores/useStudioStore';
 import { UploadZone } from './components/UploadZone';
 import { ComparisonSlider } from './components/ComparisonSlider';
 import { CanvasEditor } from './components/CanvasEditor';
-import { imageUrl, updateFuseImage, buildDownloadUrl, downloadDataUriAsFile } from '../../api';
+import { PipelineCanvas } from './components/PipelineCanvas';
+import { imageUrl, updateFuseImage, buildDownloadUrl, downloadDataUriAsFile, getSample } from '../../api';
 
 // ─── Responsive hook ──────────────────────────────────────────────────────────
 function useWindowWidth() {
@@ -19,6 +20,38 @@ function useWindowWidth() {
     return () => window.removeEventListener('resize', handler);
   }, []);
   return width;
+}
+
+async function copyTextToClipboard(text: string): Promise<boolean> {
+  if (!text.trim()) return false;
+
+  if (navigator.clipboard?.writeText && window.isSecureContext) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      // Fall back below for browsers that deny clipboard permissions.
+    }
+  }
+
+  const textarea = document.createElement('textarea');
+  textarea.value = text;
+  textarea.setAttribute('readonly', '');
+  textarea.style.position = 'fixed';
+  textarea.style.top = '-9999px';
+  textarea.style.left = '-9999px';
+  textarea.style.opacity = '0';
+  document.body.appendChild(textarea);
+  textarea.focus();
+  textarea.select();
+
+  try {
+    return document.execCommand('copy');
+  } catch {
+    return false;
+  } finally {
+    document.body.removeChild(textarea);
+  }
 }
 
 // ─── Pipeline stages definition ───────────────────────────────────────────────
@@ -54,13 +87,15 @@ export const StudioPage: React.FC = () => {
 
   const activeItem = queue.find((q) => q.id === activeId) ?? null;
 
-  const [activeTab, setActiveTab] = React.useState<'single' | 'comparison' | 'json'>('single');
+  const [activeTab, setActiveTab] = React.useState<'single' | 'original' | 'comparison' | 'pipeline' | 'json'>('single');
   const [showDownloadDialog, setShowDownloadDialog] = React.useState(false);
   const [downloadFilename, setDownloadFilename] = React.useState('translated_image');
   const [downloadFormat, setDownloadFormat] = React.useState<'jpg' | 'png' | 'webp'>('png');
   const [isDownloading, setIsDownloading] = React.useState(false);
   const [canvasKey, setCanvasKey] = React.useState(0);
   const [copied, setCopied] = React.useState(false);
+  const [copiedText, setCopiedText] = React.useState(false);
+  const [copyTextFailed, setCopyTextFailed] = React.useState(false);
   const [hoveredId, setHoveredId] = React.useState<string | null>(null);
 
   // ── Responsive ────────────────────────────────────────────────────────────
@@ -85,11 +120,46 @@ export const StudioPage: React.FC = () => {
     }
   }, [activeItem?.result]);
 
-  const handleCopyUrl = () => {
+  React.useEffect(() => {
+    if (activeItem?.status === 'done') {
+      setActiveTab('single');
+    }
+    setCopied(false);
+    setCopiedText(false);
+    setCopyTextFailed(false);
+  }, [activeItem?.id, activeItem?.status]);
+
+  const handleCopyUrl = async () => {
     if (!activeItem?.result) return;
-    navigator.clipboard.writeText(imageUrl(activeItem.result.stages.fuse));
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    const ok = await copyTextToClipboard(imageUrl(activeItem.result.stages.fuse));
+    if (ok) {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  };
+
+  const handleCopyImageText = async () => {
+    if (!activeItem?.result) return;
+
+    let text = (activeItem.result.ocr || activeItem.result.tit || '').trim();
+    if (!text.trim()) {
+      try {
+        const fresh = await getSample(activeItem.result.matched_id);
+        text = (fresh.ocr || fresh.tit || '').trim();
+      } catch (err) {
+        console.warn('Failed to refresh image text before copy', err);
+      }
+    }
+
+    const ok = await copyTextToClipboard(text);
+    setCopyTextFailed(!ok);
+    if (ok) {
+      setCopiedText(true);
+      setTimeout(() => setCopiedText(false), 2000);
+      setTimeout(() => setCopyTextFailed(false), 2000);
+    } else {
+      setTimeout(() => setCopyTextFailed(false), 2400);
+    }
   };
 
   const handleDownload = async () => {
@@ -117,6 +187,12 @@ export const StudioPage: React.FC = () => {
 
   const idleCount = queue.filter((q) => q.status === 'idle').length;
   const canTranslateAll = idleCount > 0 && !isProcessingAll;
+  const hasImageText = !!activeItem?.result;
+  const copyImageTextLabel = copiedText
+    ? 'Text Copied!'
+    : copyTextFailed
+      ? 'No Text'
+      : 'Copy Image Text';
 
   return (
     <div style={{
@@ -424,40 +500,15 @@ export const StudioPage: React.FC = () => {
               </div>
             )}
 
-            {/* Uploading state */}
+            {/* Uploading state — Pipeline Canvas Visualization */}
             {activeItem?.status === 'uploading' && (
-              <div style={{
-                flex: 1, display: 'flex', flexDirection: 'column',
-                alignItems: 'center', justifyContent: 'center', gap: '20px',
-              }}>
-                <div style={{
-                  width: '52px', height: '52px', borderRadius: '50%',
-                  border: '3px solid var(--blueG)',
-                  borderTopColor: 'var(--blue)',
-                  animation: 'spin 0.8s linear infinite',
-                }} />
-                <div style={{ textAlign: 'center' }}>
-                  <div style={{ fontSize: '15px', fontWeight: 700, color: 'var(--ink)', marginBottom: '4px' }}>
-                    Running Neural Pipeline
-                  </div>
-                  <div style={{ fontSize: '12px', color: 'var(--ink4)', fontFamily: 'var(--mono)' }}>
-                    {activeItem.progress}% complete
-                  </div>
-                  {/* Progress bar */}
-                  <div style={{
-                    marginTop: '14px', width: '240px',
-                    height: '3px', borderRadius: '99px',
-                    background: 'var(--bg2)', overflow: 'hidden',
-                  }}>
-                    <div style={{
-                      height: '100%',
-                      width: `${activeItem.progress}%`,
-                      background: 'linear-gradient(90deg, var(--blue), var(--blue2))',
-                      borderRadius: '99px',
-                      transition: 'width 0.3s ease',
-                    }} />
-                  </div>
-                </div>
+              <div style={{ flex: 1, overflow: 'auto', padding: '16px 20px' }}>
+                <PipelineCanvas
+                  isProcessing={true}
+                  progress={activeItem.progress}
+                  result={null}
+                  previewUrl={activeItem.previewUrl}
+                />
               </div>
             )}
 
@@ -507,6 +558,44 @@ export const StudioPage: React.FC = () => {
             {/* Done state — result views */}
             {activeItem?.status === 'done' && activeItem.result && (
               <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+
+                {/* ── Tab bar ── */}
+                <div style={{
+                  display: 'flex',
+                  borderBottom: '1px solid var(--ln)',
+                  background: 'var(--paper)',
+                  flexShrink: 0,
+                  overflowX: 'auto',
+                }}>
+                  {([
+                    { key: 'single',     label: 'Editor',   icon: <ImageIcon size={12} /> },
+                    { key: 'original',   label: 'Original', icon: <Eye size={12} /> },
+                    { key: 'pipeline',   label: 'Pipeline', icon: <GitBranch size={12} /> },
+                    { key: 'comparison', label: 'Compare',  icon: <ScanLine  size={12} /> },
+                    { key: 'json',       label: 'JSON',     icon: <Languages size={12} /> },
+                  ] as const).map(tab => (
+                    <button
+                      key={tab.key}
+                      onClick={() => setActiveTab(tab.key)}
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: '5px',
+                        padding: '10px 16px',
+                        border: 'none',
+                        borderBottom: `2px solid ${activeTab === tab.key ? 'var(--blue)' : 'transparent'}`,
+                        background: 'transparent',
+                        color: activeTab === tab.key ? 'var(--blue)' : 'var(--ink4)',
+                        fontSize: '12px', fontWeight: activeTab === tab.key ? 700 : 500,
+                        cursor: 'pointer',
+                        transition: 'color 0.15s, border-color 0.15s',
+                        whiteSpace: 'nowrap',
+                        fontFamily: 'var(--mono)',
+                      }}
+                    >
+                      {tab.icon} {tab.label}
+                    </button>
+                  ))}
+                </div>
+
                 {/* Canvas Editor */}
                 <div style={{ display: activeTab === 'single' ? 'flex' : 'none', flex: 1, flexDirection: 'column', minHeight: 0 }}>
                   <CanvasEditor
@@ -523,6 +612,43 @@ export const StudioPage: React.FC = () => {
                   />
                 </div>
 
+                {/* Original Image */}
+                <div style={{
+                  display: activeTab === 'original' ? 'flex' : 'none',
+                  flex: 1,
+                  minHeight: 0,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  padding: isMobile ? '12px' : '20px',
+                  background: 'var(--bg)',
+                  overflow: 'auto',
+                }}>
+                  <img
+                    src={imageUrl(activeItem.result.stages.input)}
+                    alt="Original input"
+                    style={{
+                      maxWidth: '100%',
+                      maxHeight: '100%',
+                      objectFit: 'contain',
+                      borderRadius: '8px',
+                      border: '1px solid var(--ln)',
+                      boxShadow: '0 8px 30px rgba(0,0,0,0.10)',
+                    }}
+                  />
+                </div>
+
+                {/* Pipeline Canvas — shows after done */}
+                {activeTab === 'pipeline' && (
+                  <div style={{ flex: 1, overflow: 'auto', padding: '16px 20px' }}>
+                    <PipelineCanvas
+                      isProcessing={false}
+                      progress={100}
+                      result={activeItem.result}
+                      previewUrl={activeItem.previewUrl}
+                    />
+                  </div>
+                )}
+
                 {/* Comparison Slider */}
                 <div style={{ display: activeTab === 'comparison' ? 'flex' : 'none', flex: 1, flexDirection: 'column', minHeight: 0 }}>
                   <ComparisonSlider
@@ -530,6 +656,7 @@ export const StudioPage: React.FC = () => {
                     translated={activeItem.editedImage || imageUrl(activeItem.result.stages.fuse)}
                   />
                 </div>
+
                 {activeTab === 'json' && (
                   <div style={{
                     flex: 1, borderRadius: '12px', overflow: 'auto',
@@ -640,6 +767,17 @@ export const StudioPage: React.FC = () => {
                       onClick: handleCopyUrl,
                     },
                     {
+                      icon: <Eye size={16} />,
+                      label: 'Original Image',
+                      onClick: () => setActiveTab('original'),
+                    },
+                    {
+                      icon: copiedText ? <Check size={16} /> : <Copy size={16} />,
+                      label: copyImageTextLabel,
+                      onClick: handleCopyImageText,
+                      disabled: !hasImageText,
+                    },
+                    {
                       icon: <RefreshCw size={16} />,
                       label: activeTab === 'comparison' ? 'Editor View' : 'Compare View',
                       onClick: () => setActiveTab(activeTab === 'comparison' ? 'single' : 'comparison'),
@@ -648,21 +786,26 @@ export const StudioPage: React.FC = () => {
                     <button
                       key={action.label}
                       onClick={action.onClick}
+                      disabled={action.disabled}
                       style={{
                         display: 'flex', alignItems: 'center', gap: '10px',
                         padding: '12px 16px', borderRadius: '10px', border: '1px solid var(--ln)',
                         background: 'transparent', fontSize: '14px', fontWeight: 500,
-                        color: 'var(--ink3)', cursor: 'pointer', textAlign: 'left',
+                        color: action.disabled ? 'var(--ink4)' : 'var(--ink3)',
+                        cursor: action.disabled ? 'not-allowed' : 'pointer',
+                        opacity: action.disabled ? 0.55 : 1,
+                        textAlign: 'left',
                         transition: 'background 0.12s, color 0.12s',
                         width: '100%',
                       }}
                       onMouseEnter={(e) => {
+                        if (action.disabled) return;
                         e.currentTarget.style.background = 'var(--bg2)';
                         e.currentTarget.style.color = 'var(--ink)';
                       }}
                       onMouseLeave={(e) => {
                         e.currentTarget.style.background = 'transparent';
-                        e.currentTarget.style.color = 'var(--ink3)';
+                        e.currentTarget.style.color = action.disabled ? 'var(--ink4)' : 'var(--ink3)';
                       }}
                     >
                       {action.icon}
@@ -734,7 +877,7 @@ export const StudioPage: React.FC = () => {
             <Download size={14} /> Export
           </button>
           <button
-            onClick={handleCopyUrl}
+            onClick={() => setActiveTab('original')}
             style={{
               flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px',
               padding: '9px 0', borderRadius: '10px', border: '1px solid var(--ln)',
@@ -742,8 +885,21 @@ export const StudioPage: React.FC = () => {
               fontSize: '12px', fontWeight: 600, cursor: 'pointer',
             }}
           >
-            {copied ? <Check size={14} /> : <Copy size={14} />}
-            {copied ? 'Copied!' : 'Copy URL'}
+            <Eye size={14} /> Original
+          </button>
+          <button
+            onClick={handleCopyImageText}
+            disabled={!hasImageText}
+            style={{
+              flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px',
+              padding: '9px 0', borderRadius: '10px', border: '1px solid var(--ln)',
+              background: 'var(--bg2)', color: hasImageText ? 'var(--ink3)' : 'var(--ink4)',
+              fontSize: '12px', fontWeight: 600, cursor: hasImageText ? 'pointer' : 'not-allowed',
+              opacity: hasImageText ? 1 : 0.55,
+            }}
+          >
+            {copiedText ? <Check size={14} /> : <Copy size={14} />}
+            {copiedText ? 'Copied' : copyTextFailed ? 'No Text' : 'Text'}
           </button>
           <button
             onClick={() => setActiveTab(t => t === 'comparison' ? 'single' : 'comparison')}

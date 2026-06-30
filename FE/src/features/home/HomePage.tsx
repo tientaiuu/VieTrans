@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import { checkHealth, getPipelineInfo, listSamples } from '../../api';
-import type { PipelineInfo, SamplesPage } from '../../api';
+import { checkHealth, getPipelineInfo } from '../../api';
+import type { PipelineInfo } from '../../api';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 interface HomeStats {
@@ -17,8 +17,8 @@ interface TickerItem { source: string; translated: string; }
 
 // ─── Defaults ────────────────────────────────────────────────────────────────
 const DEFAULT_STATS: HomeStats = {
-  totalSamples: 12400000, accuracy: '98.2%', latency: '<1.2s',
-  uptime: '99.9%', activeUsers: '14k', tokensProcessed: '50M+', inferenceMs: '12ms',
+  totalSamples: 0, accuracy: 'Live OCR', latency: 'model-dependent',
+  uptime: 'self-hosted', activeUsers: 'workspace', tokensProcessed: 'on demand', inferenceMs: 'runtime',
 };
 const DEFAULT_TICKER: TickerItem[] = [
   { source: 'Welcome to Vietnam',      translated: 'Chào mừng đến Việt Nam' },
@@ -28,27 +28,27 @@ const DEFAULT_TICKER: TickerItem[] = [
   { source: 'Restricted Area',         translated: 'Khu Vực Cấm' },
 ];
 const DEFAULT_ARCH = [
-  { no:'01', title:'Text-Background Separation', desc:'Isolates source text layers from complex backgrounds using the SeparateEncoder model.',      tags:['SeparateEncoder','Patch16','PyTorch'], val:'0.021',  label:'Separate MSE'   },
-  { no:'02', title:'Visual Codebook',            desc:'Vector quantizer mapping visual features to discrete visual indices.',                            tags:['Codebook','8192 Size','Quantizer'],   val:'8192',   label:'Codebook Size'  },
-  { no:'03', title:'Neural Code Translation',    desc:'Translates quantized source English codes into Vietnamese codes without relying on text OCR.',  tags:['AuxTITTransformer','NMT','Attention'],val:'0.861',  label:'BLEU Score'     },
-  { no:'04', title:'Text-Background Fusion',     desc:'Seamlessly blends translated target text images back onto the original clean background.',       tags:['FuseDecoder','Patch16','Fusion'],      val:'0.006',  label:'Fusion MSE'     },
+  { no:'01', title:'OCR Detection',       desc:'Detects source text regions with confidence, polygons, baselines, and style samples.', tags:['PaddleOCR','PP-OCRv5','Polygon'], val:'OCR',    label:'Detection' },
+  { no:'02', title:'Layout Blocks',       desc:'Clusters OCR lines into semantic blocks before translation, so fragments no longer render independently.', tags:['OcrLine','LayoutBlock','Graph'], val:'Block',  label:'Grouping'  },
+  { no:'03', title:'Span Translation',    desc:'Protects acronyms, units, and entities at span level while translating the surrounding sentence with context.', tags:['TextSpan','NLLB','Glossary'], val:'EN→VI', label:'Translation' },
+  { no:'04', title:'Style-Aware Render',  desc:'Plans shared font, size, color, alignment, and masks per visual group before drawing the final text.', tags:['RenderPlan','OpenCV','PIL'], val:'Plan',   label:'Rendering' },
 ];
 const PIPE_STEPS = [
-  { n:'01 / SEPARATE',  h:'Background Separation', p:'SeparateEncoder isolates a clean background layer from the source text image, completely removing text while preserving original scene details.',    tag:'SeparateEncoder · AI',  icon:'M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z' },
-  { n:'02 / CODEBOOK',  h:'Visual Quantization',   p:'Codebook model maps visual text details into discrete token sequences, capturing font style, slant, layout, and size in a visual vocabulary.', tag:'Codebook · Quantizer',  icon:'M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5' },
-  { n:'03 / TRANSLATE', h:'Neural Translation',    p:'AuxTITTransformer translates English source visual codes directly into target Vietnamese visual codes without using error-prone OCR.',       tag:'AuxTITTransformer · NMT',icon:'M12.87 15.07l-2.54-2.51.03-.03c1.74-1.94 2.98-4.17 3.71-6.53H17V4h-7V2H8v2H1v1.99h11.17C11.5 7.92 10.44 9.75 9 11.35 8.07 10.32 7.3 9.19 6.69 8h-2c.73 1.63 1.73 3.17 2.98 4.56l-5.09 5.02L4 19l5-5 3.11 3.11.76-2.04zM18.5 10h-2L12 22h2l1.12-3h4.75L21 22h2l-4.5-12zm-2.62 7l1.62-4.33L19.12 17h-3.24z' },
-  { n:'04 / FUSE',      h:'Seamless Fusion',       p:'FuseDecoder composites the translated target text image back onto the separated clean background layer, rendering a natural translation.',    tag:'FuseDecoder · Compositer',icon:'M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z' },
+  { n:'01 / OCR',       h:'Text Detection',       p:'PaddleOCR detects text polygons and confidence while preserving raw line geometry for later grouping.', tag:'PaddleOCR · PP-OCRv5', icon:'M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z' },
+  { n:'02 / LAYOUT',    h:'Semantic Grouping',    p:'OcrLine fragments become LayoutBlock records with reading order, render boxes, style groups, and mask polygons.', tag:'LayoutBlock · Graph', icon:'M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5' },
+  { n:'03 / TRANSLATE', h:'Span-Safe Translation',p:'TextSpan classification keeps acronyms, units, and entities stable while translating the surrounding phrase with NLLB.', tag:'TextSpan · NLLB', icon:'M12.87 15.07l-2.54-2.51.03-.03c1.74-1.94 2.98-4.17 3.71-6.53H17V4h-7V2H8v2H1v1.99h11.17C11.5 7.92 10.44 9.75 9 11.35 8.07 10.32 7.3 9.19 6.69 8h-2c.73 1.63 1.73 3.17 2.98 4.56l-5.09 5.02L4 19l5-5 3.11 3.11.76-2.04zM18.5 10h-2L12 22h2l1.12-3h4.75L21 22h2l-4.5-12zm-2.62 7l1.62-4.33L19.12 17h-3.24z' },
+  { n:'04 / RENDER',    h:'Style-Aware Drawing',  p:'RenderPlan picks shared font policy, size, color, alignment, spacing, and foreground masks for clean final output.', tag:'RenderPlan · PIL', icon:'M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z' },
 ];
 const CAPS = [
-  { n:'01', h:'Vertical & Rotated Text',  p:'Advanced detection logic handles text at any angle, including vertical East Asian scripts and skewed perspective text.' },
-  { n:'02', h:'Multi-Language Fusion',    p:'Translate images containing multiple source languages into a single target language with perfect coherence.' },
-  { n:'03', h:'Smart Font Matching',      p:'We match weight, slant, tracking, and style to ensure your translation feels like it was part of the original design.' },
-  { n:'04', h:'Context Reconstruction',   p:'Using DeBackX Separate & Fuse to erase text and reconstruct complex background textures, gradients, and subtle noise.' },
-  { n:'05', h:'Batch API Access',         p:'Process thousands of images simultaneously with our high-throughput gRPC and WebSocket API interfaces.' },
-  { n:'06', h:'Enterprise Security',      p:'SOC 2 Type II compliant processing. Your images are never used for model training without explicit consent.' },
+  { n:'01', h:'Adaptive OCR Grouping',    p:'Wide paragraphs, dense labels, and single-panel signs are grouped by geometry instead of fixed box rules.' },
+  { n:'02', h:'Protected Inline Spans',   p:'Acronyms, units, codes, and names can stay original inside a translated sentence without forcing the whole block to stay English.' },
+  { n:'03', h:'Shared Render Styling',    p:'Blocks in the same visual group share font and size policy, avoiding the mixed-size output from per-box rendering.' },
+  { n:'04', h:'Foreground Text Masks',    p:'Inpainting targets source text masks instead of painting large opaque rectangles over the scene.' },
+  { n:'05', h:'Batch Workflow',           p:'Queue multiple images in the studio and process each one through the same upload pipeline.' },
+  { n:'06', h:'QA Artifacts',             p:'Each run writes OCR, layout, spans, render plan, and leftover-English QA files for debugging.' },
 ];
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+// // ─── Helpers ──────────────────────────────────────────────────────────────────
 function formatCount(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M+`;
   if (n >= 1_000)     return `${(n / 1_000).toFixed(1)}k+`;
@@ -56,44 +56,15 @@ function formatCount(n: number): string {
 }
 function buildArchFromPipeline(info: PipelineInfo): typeof DEFAULT_ARCH {
   if (!info.models) return DEFAULT_ARCH;
-  const m = info.models;
   return [
-    {
-      no: '01',
-      title: 'Text-Background Separation',
-      desc: 'Isolates source text layers from complex backgrounds using the SeparateEncoder model.',
-      tags: ['SeparateEncoder', `Patch ${m.separate?.patch_size || 16}`, 'PyTorch'],
-      val: String(m.separate?.checkpoint || '0.021').replace('checkpoint_best', '').replace('.pt', ''),
-      label: 'Separate MSE'
-    },
-    {
-      no: '02',
-      title: 'Visual Codebook',
-      desc: 'Vector quantizer mapping visual features to discrete visual indices.',
-      tags: ['Codebook', `${m.codebook?.codebook_size || 8192} Size`, 'Quantizer'],
-      val: String(m.codebook?.codebook_size || '8192'),
-      label: 'Codebook Size'
-    },
-    {
-      no: '03',
-      title: 'Neural Code Translation',
-      desc: 'Translates quantized source English codes into Vietnamese codes without relying on text OCR.',
-      tags: ['AuxTITTransformer', 'NMT', `BLEU ${m.translation?.bleu_score || '0.861'}`],
-      val: String(m.translation?.bleu_score || '0.861'),
-      label: 'BLEU Score'
-    },
-    {
-      no: '04',
-      title: 'Text-Background Fusion',
-      desc: 'Seamlessly blends translated target text images back onto the original clean background.',
-      tags: ['FuseDecoder', `Patch ${m.fuse?.patch_size || 16}`, 'Fusion'],
-      val: String(m.fuse?.checkpoint || '0.006').replace('checkpoint_best', '').replace('.pt', ''),
-      label: 'Fusion MSE'
-    }
+    { ...DEFAULT_ARCH[0], tags: [String(info.models.ocr?.engine || 'PaddleOCR'), 'OCR', 'Polygon'] },
+    { ...DEFAULT_ARCH[1], tags: [String(info.models.layout?.engine || 'adaptive clustering'), 'LayoutBlock', 'TextSpan'] },
+    { ...DEFAULT_ARCH[2], tags: [String(info.models.translation?.engine || 'NLLB'), 'Glossary', 'Placeholder'] },
+    { ...DEFAULT_ARCH[3], tags: [String(info.models.render?.engine || 'RenderPlan'), 'Inpaint', 'PIL'] },
   ];
 }
 
-// ─── useInView — triggers class when element enters viewport ──────────────────
+// // ─── useInView — triggers class when element enters viewport ──────────────────
 function useInView(threshold = 0.15) {
   const ref = useRef<HTMLElement>(null);
   const [visible, setVisible] = useState(false);
@@ -151,7 +122,7 @@ const SkeletonNum = () => (
 // ─── HomePage ─────────────────────────────────────────────────────────────────
 export const HomePage: React.FC = () => {
   const [stats,    setStats]    = useState<HomeStats>(DEFAULT_STATS);
-  const [ticker,   setTicker]   = useState<TickerItem[]>(DEFAULT_TICKER);
+  const ticker = DEFAULT_TICKER;
   const [archRows, setArchRows] = useState(DEFAULT_ARCH);
   const [loading,  setLoading]  = useState(true);
 
@@ -182,8 +153,8 @@ export const HomePage: React.FC = () => {
     let gone = false;
     (async () => {
       try {
-        const [health, pipelineInfo, samplesPage] = await Promise.allSettled([
-          checkHealth(), getPipelineInfo(), listSamples(1, 10),
+        const [health, pipelineInfo] = await Promise.allSettled([
+          checkHealth(), getPipelineInfo(),
         ]);
         if (gone) return;
         let s = { ...DEFAULT_STATS };
@@ -195,14 +166,7 @@ export const HomePage: React.FC = () => {
           setArchRows(buildArchFromPipeline(pipelineInfo.value));
           if (pipelineInfo.value.total_samples > 0) s.totalSamples = pipelineInfo.value.total_samples;
         }
-        setStats(s);
-        if (samplesPage.status === 'fulfilled') {
-          const items = (samplesPage.value as SamplesPage).samples
-            .filter(x => x.tit && x.ocr).slice(0, 8)
-            .map(x => ({ source: x.ocr.substring(0,60).trim(), translated: x.tit.substring(0,60).trim() }));
-          if (items.length > 0) setTicker(items);
-        }
-      } catch { /* silent fallback */ } finally { if (!gone) setLoading(false); }
+        setStats(s);      } catch { /* silent fallback */ } finally { if (!gone) setLoading(false); }
     })();
     return () => { gone = true; };
   }, []);
@@ -362,7 +326,7 @@ export const HomePage: React.FC = () => {
 
               <div className="hv2-stack">
                 <span className="hv2-stack-label">STACK</span>
-                {['PaddleOCR', 'mBART-50', 'LaMa', 'SOC 2'].map(p => (
+                {['PaddleOCR', 'NLLB', 'OpenCV inpaint', 'Layout render'].map(p => (
                   <span key={p} className="hd-pill">{p}</span>
                 ))}
               </div>
@@ -486,7 +450,7 @@ export const HomePage: React.FC = () => {
 
         {/* Live ticker */}
         <div className="hero-ticker">
-          <span className="ht-lbl">Live stream</span>
+          <span className="ht-lbl">Batch result</span>
           <div className="ht-track">
             <div className="ht-inner" style={{ animationDuration:`${tickDuration}s` }}>
               {tickerItems.map((item,i) => (
@@ -526,8 +490,8 @@ export const HomePage: React.FC = () => {
             <div className="sec-h">One upload.<br />Four steps.<br /><em>Zero effort.</em></div>
           </div>
           <div className="sec-desc">
-            Submit via drag-and-drop or API. VieTrans runs four AI layers and returns
-            a fully translated image in under 1.2 s on average.
+            Submit via drag-and-drop or API. VieTrans runs OCR, translation, text removal,
+            and layout-aware rendering, then returns the translated image when processing completes.
           </div>
         </div>
 

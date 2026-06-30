@@ -1,5 +1,5 @@
 /**
- * DeBackX API Client
+ * VieTrans API Client
  * Communicates with the FastAPI backend at localhost:8000
  */
 
@@ -22,20 +22,6 @@ export interface SampleDetail {
   stages: PipelineStages;
 }
 
-export interface SampleListItem {
-  id: number | string;
-  tit: string;
-  ocr: string;
-}
-
-export interface SamplesPage {
-  page: number;
-  limit: number;
-  total: number;
-  total_pages: number;
-  samples: SampleListItem[];
-}
-
 export interface UploadResult {
   matched_id: number | string;
   tit: string;
@@ -47,7 +33,7 @@ export interface PipelineInfo {
   total_samples: number;
   stages: { key: string; name: string; name_en: string }[];
   models: Record<string, Record<string, unknown>>;
-  image_size: { width: number; height: number };
+  image_size: { width: number | string; height: number | string };
 }
 
 // ─── API Functions ──────────────────────────────────────────────────────────
@@ -64,33 +50,21 @@ export async function getPipelineInfo(): Promise<PipelineInfo> {
   return res.json();
 }
 
-export async function listSamples(page = 1, limit = 20): Promise<SamplesPage> {
-  const res = await fetch(`${API_BASE}/api/samples?page=${page}&limit=${limit}`);
-  if (!res.ok) throw new Error('Failed to fetch samples');
-  return res.json();
-}
-
 export async function getSample(id: number | string): Promise<SampleDetail> {
   const res = await fetch(`${API_BASE}/api/samples/${id}`);
   if (!res.ok) throw new Error(`Sample ${id} not found`);
   return res.json();
 }
 
-export async function getRandomSample(): Promise<SampleDetail> {
-  const res = await fetch(`${API_BASE}/api/random`);
-  if (!res.ok) throw new Error('Failed to fetch random sample');
-  return res.json();
-}
-
 export async function uploadImage(file: File, token?: string): Promise<UploadResult> {
   const formData = new FormData();
   formData.append('file', file);
-  
+
   const headers: HeadersInit = {};
   if (token) {
     headers['Authorization'] = `Bearer ${token}`;
   }
-  
+
   const res = await fetch(`${API_BASE}/api/upload`, {
     method: 'POST',
     headers,
@@ -155,11 +129,6 @@ export async function deleteHistory(sampleId: string, token: string): Promise<vo
 /** Build full image URL from API path */
 export function imageUrl(apiPath: string): string {
   return `${API_BASE}${apiPath}`;
-}
-
-/** Build thumbnail URL */
-export function thumbUrl(stage: string, id: number | string): string {
-  return `${API_BASE}/api/images/thumb/${stage}/${id}`;
 }
 
 /** Download an image from the API with custom filename and format */
@@ -310,3 +279,22 @@ export async function getCurrentUser(token: string): Promise<AuthUser> {
   return res.json();
 }
 
+export async function changePassword(
+  token: string,
+  currentPassword: string,
+  newPassword: string
+): Promise<MessageResponse> {
+  const res = await fetch(`${API_BASE}/api/auth/change-password`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ currentPassword, newPassword }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: 'Change password failed' }));
+    throw new Error(err.detail || 'Change password failed');
+  }
+  return res.json();
+}

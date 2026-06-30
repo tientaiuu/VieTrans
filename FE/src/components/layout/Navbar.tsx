@@ -3,6 +3,7 @@ import { NavLink, Link, useNavigate } from 'react-router-dom';
 import {
   Bell, ChevronDown, Heart, LogOut, MessageSquare,
   Settings, Sparkles, UserRound, Info, ImageIcon, AlertCircle,
+  Menu, X as XIcon,
 } from 'lucide-react';
 import { useAppStore } from '../../stores/useAppStore';
 import { getFirstName } from '../../utils/user';
@@ -72,18 +73,18 @@ const GUEST_NOTIFICATIONS: Notification[] = [
   },
   {
     id: 'guest-2',
-    title: 'New: Batch API',
+    title: 'Studio Batch Queue',
     time: '2h ago',
-    message: 'Process thousands of images in parallel with our gRPC streaming API.',
-    detail: 'See the API Docs for integration guides and code samples.',
+    message: 'Queue multiple images and process them through the current upload pipeline.',
+    detail: 'See the docs for the available REST endpoints and workspace workflow.',
     accent: 'gold',
     type: 'generated',
   },
   {
     id: 'guest-3',
-    title: '98.2% OCR accuracy',
+    title: 'OCR Improvements',
     time: '1d ago',
-    message: 'VieTrans now detects vertical, rotated and handwritten text with 98.2% accuracy.',
+    message: 'VieTrans uses OCR confidence filtering and layout-aware rendering for cleaner outputs.',
     accent: 'green',
     type: 'generated',
   },
@@ -108,6 +109,7 @@ export const Navbar: React.FC = () => {
 
   const [notificationsOpen, setNotificationsOpen] = React.useState(false);
   const [accountMenuOpen, setAccountMenuOpen] = React.useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = React.useState(false);
   const [notifications, setNotifications] = React.useState<Notification[]>([]);
   const [notifsLoading, setNotifsLoading] = React.useState(false);
 
@@ -193,6 +195,7 @@ export const Navbar: React.FC = () => {
   const handleAccountAction = (path: string) => {
     setNotificationsOpen(false);
     setAccountMenuOpen(false);
+    setMobileMenuOpen(false);
     navigate(path);
   };
 
@@ -200,12 +203,14 @@ export const Navbar: React.FC = () => {
     logout();
     setNotificationsOpen(false);
     setAccountMenuOpen(false);
+    setMobileMenuOpen(false);
     navigate('/');
   };
 
   const handleNotificationToggle = () => {
     setNotificationsOpen(o => !o);
     setAccountMenuOpen(false);
+    setMobileMenuOpen(false);
   };
 
   const unreadCount = notifications.filter(n => !n.read).length;
@@ -395,7 +400,122 @@ export const Navbar: React.FC = () => {
         >
           <Settings size={18} />
         </button>
+
+        {/* ── Hamburger (mobile only) ── */}
+        <button
+          type="button"
+          className="thm-btn"
+          title={mobileMenuOpen ? 'Close menu' : 'Open menu'}
+          aria-label={mobileMenuOpen ? 'Close menu' : 'Open menu'}
+          aria-expanded={mobileMenuOpen}
+          onClick={() => { setMobileMenuOpen(o => !o); setNotificationsOpen(false); setAccountMenuOpen(false); }}
+          style={{ display: 'none' }}
+          id="nav-hamburger"
+        >
+          {mobileMenuOpen ? <XIcon size={18} /> : <Menu size={18} />}
+        </button>
       </div>
+
+      {/* ── Mobile menu panel ── */}
+      {mobileMenuOpen && (
+        <div
+          id="mobile-nav-panel"
+          style={{
+            position: 'fixed',
+            top: '66px',
+            left: 0, right: 0,
+            background: 'var(--paper)',
+            borderBottom: '1px solid var(--ln)',
+            zIndex: 999,
+            padding: '16px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '4px',
+            boxShadow: '0 8px 32px rgba(0,0,0,0.12)',
+            animation: 'mobile-menu-in 0.2s cubic-bezier(0.22,1,0.36,1)',
+          }}
+        >
+          <style>{`
+            @keyframes mobile-menu-in {
+              from { opacity: 0; transform: translateY(-8px); }
+              to   { opacity: 1; transform: translateY(0); }
+            }
+            @media (max-width: 768px) {
+              #nav-hamburger { display: flex !important; }
+              nav .nl { display: none !important; }
+            }
+          `}</style>
+          {[
+            { to: '/',          label: 'Overview' },
+            { to: '/studio',    label: 'Studio' },
+            { to: '/dashboard', label: 'Dashboard' },
+            { to: '/docs',      label: 'API Docs' },
+            { to: '/pricing',   label: 'Pricing' },
+            { to: '/about',     label: 'About' },
+          ].map(({ to, label }) => (
+            <NavLink
+              key={to}
+              to={to}
+              end={to === '/'}
+              onClick={() => setMobileMenuOpen(false)}
+              style={({ isActive }) => ({
+                padding: '12px 16px',
+                borderRadius: '10px',
+                fontSize: '15px',
+                fontWeight: isActive ? 700 : 500,
+                color: isActive ? 'var(--blue)' : 'var(--ink3)',
+                background: isActive ? 'var(--blueG)' : 'transparent',
+                textDecoration: 'none',
+                display: 'block',
+                transition: 'background 0.12s, color 0.12s',
+              })}
+            >
+              {label}
+            </NavLink>
+          ))}
+
+          <div style={{ height: '1px', background: 'var(--ln)', margin: '8px 0' }} />
+
+          {isLoggedIn ? (
+            <>
+              <button
+                type="button"
+                onClick={() => { setMobileMenuOpen(false); navigate('/account'); }}
+                style={{
+                  padding: '12px 16px', borderRadius: '10px', border: 'none',
+                  background: 'transparent', textAlign: 'left',
+                  fontSize: '15px', fontWeight: 500, color: 'var(--ink3)', cursor: 'pointer',
+                }}
+              >
+                Account
+              </button>
+              <button
+                type="button"
+                onClick={handleLogout}
+                style={{
+                  padding: '12px 16px', borderRadius: '10px', border: 'none',
+                  background: 'rgba(239,68,68,0.06)', textAlign: 'left',
+                  fontSize: '15px', fontWeight: 600, color: '#ef4444', cursor: 'pointer',
+                }}
+              >
+                Logout
+              </button>
+            </>
+          ) : (
+            <button
+              type="button"
+              onClick={() => { setMobileMenuOpen(false); navigate('/login'); }}
+              style={{
+                padding: '12px 16px', borderRadius: '10px', border: 'none',
+                background: 'linear-gradient(135deg, var(--blue), var(--blue2))',
+                color: '#fff', fontSize: '15px', fontWeight: 700, cursor: 'pointer',
+              }}
+            >
+              Sign up / Login
+            </button>
+          )}
+        </div>
+      )}
     </nav>
   );
 };

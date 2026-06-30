@@ -1,7 +1,7 @@
 """
 VieTrans API Server
 ──────────────────
-Serve pre-computed pipeline results (Separate → Translation → Fuse)
+Serve live image translation results
 as a REST API for the FE frontend.
 
 Usage:
@@ -12,15 +12,13 @@ from __future__ import annotations
 
 import os
 import io
-import hashlib
-import random
 from pathlib import Path
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException, UploadFile, File, Query, Depends, Request
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.security.utils import get_authorization_scheme_param
 from datetime import datetime, timedelta, timezone
 from PIL import Image
@@ -29,146 +27,59 @@ import uuid
 
 # Import auth module
 from auth import router as auth_router, init_mongo, close_mongo, decode_token, get_db, get_current_user
+from space_client import RemoteInferenceError, run_space_inference
 
-# Import our PyTorch inference pipeline
-try:
-    from inference import pipeline as dbx_pipeline
-except Exception as e:
-    import traceback
-    print(f"[Warning] Failed to load inference pipeline: {e}")
-    traceback.print_exc()
-    dbx_pipeline = None
-
-# Concurrency lock for heavy GPU/MPS operations
-inference_lock = asyncio.Lock()
+# Keep backend requests ordered; the deployed Space owns model/GPU concurrency.
+space_call_lock = asyncio.Lock()
 
 # ─── Path resolution ──────────────────────────────────────────────────────────
 SERVER_DIR = Path(__file__).resolve().parent
-DEBACK_ROOT = SERVER_DIR.parent  # /Users/…/DA/Deback
-PROJECT_ROOT = DEBACK_ROOT.parent  # /Users/…/DA
-
-RESULTS_DIR = DEBACK_ROOT / "outputs" / "results"
-DATASET_DIR = PROJECT_ROOT / "IIMT30k_Vi" / "Arial" / "test"
-
-# Pipeline stage directories
-PATHS = {
-    "input":       DATASET_DIR / "en" / "image",
-    "input_text":  DATASET_DIR / "en" / "text",
-    "back":        RESULTS_DIR / "separate" / "test" / "back" / "en",
-    "text_en":     RESULTS_DIR / "separate" / "test" / "text" / "en",
-    "text_vi":     RESULTS_DIR / "translation" / "test" / "vi",
-    "fuse":        RESULTS_DIR / "fuse" / "test" / "vi",
-}
-
+BACKEND_ROOT = SERVER_DIR.parent
+RESULTS_DIR = BACKEND_ROOT / "outputs" / "results"
 LIVE_DIR = RESULTS_DIR / "live"
 LIVE_DIR.mkdir(parents=True, exist_ok=True)
 
-THUMB_DIR = RESULTS_DIR / ".thumbs"
-THUMB_DIR.mkdir(parents=True, exist_ok=True)
-
-# Mock mode disabled/removed
-
-# ─── Cache text results at startup ────────────────────────────────────────────
-TIT_FILE = RESULTS_DIR / "translation" / "test" / "tit.vi"
-OCR_FILE = RESULTS_DIR / "fuse" / "test" / "ocr.vi"
-
-_tit_lines: list[str] = []
-_ocr_lines: list[str] = []
-_sample_ids: list[int] = []
-_input_hashes: dict[str, int] = {}  # perceptual hash → sample id
+LIVE_STAGES = {"input", "back", "text_en", "text_vi", "fuse"}
 
 
-def _load_text_cache():
-    global _tit_lines, _ocr_lines
-    if TIT_FILE.exists():
-        _tit_lines = TIT_FILE.read_text(encoding="utf-8").splitlines()
-    if OCR_FILE.exists():
-        _ocr_lines = OCR_FILE.read_text(encoding="utf-8").splitlines()
+def _live_result_count() -> int:
+    try:
+        return sum(1 for item in LIVE_DIR.iterdir() if item.is_dir())
+    except Exception:
+        return 0
 
 
-def _scan_sample_ids():
-    """Build sorted list of available sample IDs from fuse results."""
-    global _sample_ids
-    fuse_dir = PATHS["fuse"]
-    if fuse_dir.exists():
-        ids = []
-        for f in fuse_dir.iterdir():
-            if f.suffix == ".jpg":
-                try:
-                    ids.append(int(f.stem))
-                except ValueError:
-                    pass
-        _sample_ids = sorted(ids)
+def _read_text_file(path: Path) -> str:
+    try:
+        return path.read_text(encoding="utf-8").strip()
+    except Exception:
+        return ""
 
 
-def _build_input_hashes():
-    """Build simple perceptual hashes of input images for matching uploads."""
-    global _input_hashes
-    input_dir = PATHS["input"]
-    if not input_dir.exists():
-        return
-    for f in sorted(input_dir.iterdir()):
-        if f.suffix != ".jpg":
-            continue
-        try:
-            sample_id = int(f.stem)
-        except ValueError:
-            continue
-        try:
-            img = Image.open(f).convert("L").resize((8, 8), Image.LANCZOS)
-            pixels = list(img.getdata())
-            avg = sum(pixels) / len(pixels)
-            bits = "".join("1" if p > avg else "0" for p in pixels)
-            _input_hashes[bits] = sample_id
-        except Exception:
-            pass
-
-
-def _compute_phash(img_bytes: bytes) -> str:
-    """Compute a simple perceptual hash from uploaded image bytes."""
-    img = Image.open(io.BytesIO(img_bytes)).convert("L").resize((8, 8), Image.LANCZOS)
-    pixels = list(img.getdata())
-    avg = sum(pixels) / len(pixels)
-    return "".join("1" if p > avg else "0" for p in pixels)
-
-
-def _hamming_distance(a: str, b: str) -> int:
-    return sum(c1 != c2 for c1, c2 in zip(a, b))
-
-
-# ─── FastAPI app ──────────────────────────────────────────────────────────────
 app = FastAPI(
-    title="DebackX Pipeline API",
-    description="Serve pre-computed In-Image Machine Translation results",
+    title="VieTrans Image Translation API",
+    description="Serve live in-image translation results",
     version="1.0.0",
 )
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=False,
+    allow_origins=os.environ.get(
+        "ALLOWED_ORIGINS",
+        "http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173",
+    ).split(","),
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-
-# Mount auth router
 app.include_router(auth_router)
 
 
 @app.on_event("startup")
 async def startup():
-    # Initialize MongoDB for auth
     await init_mongo()
-
-    _load_text_cache()
-    _scan_sample_ids()
-    _build_input_hashes()
-    print(f"[DebackX] Loaded {len(_sample_ids)} samples, {len(_tit_lines)} text lines, {len(_input_hashes)} hashes")
-    
-    if dbx_pipeline:
-        # Preload the 4 transformer models into RAM/VRAM
-        await asyncio.to_thread(dbx_pipeline.load_models)
+    print(f"[VieTrans] Live results: {_live_result_count()}")
 
 
 @app.on_event("shutdown")
@@ -180,124 +91,78 @@ async def shutdown():
 
 @app.get("/api/health")
 async def health():
-    return {"status": "ok", "total_samples": len(_sample_ids)}
+    return {"status": "ok", "total_samples": _live_result_count()}
 
 
 @app.get("/api/pipeline-info")
 async def pipeline_info():
-    """Return pipeline metadata and model info."""
+    """Return the active live translation pipeline metadata."""
     return {
-        "total_samples": len(_sample_ids),
+        "total_samples": _live_result_count(),
         "stages": [
-            {"key": "separate", "name": "Tách nền và chữ", "name_en": "Text-Background Separation"},
-            {"key": "translate", "name": "Dịch hình ảnh chữ", "name_en": "Image Translation (EN→VI)"},
-            {"key": "fuse", "name": "Ghép ảnh kết quả", "name_en": "Text-Background Fusion"},
+            {"key": "ocr", "name": "Nhan dang chu", "name_en": "OCR"},
+            {"key": "layout", "name": "Phan tich bo cuc", "name_en": "Layout Analysis"},
+            {"key": "translate", "name": "Dich theo cum ngu nghia", "name_en": "Context Translation"},
+            {"key": "render", "name": "Ve lai van ban", "name_en": "Style-Aware Rendering"},
         ],
         "models": {
-            "separate": {"checkpoint": "checkpoint_best0.021.pt", "patch_size": 16},
-            "codebook": {"checkpoint": "checkpoint_best0.020.pt", "codebook_size": 8192},
-            "translation": {"checkpoint": "checkpoint_best0.861.pt", "bleu_score": 0.861},
-            "fuse": {"checkpoint": "checkpoint_best0.006.pt", "patch_size": 16},
+            "ocr": {"engine": "remote Hugging Face Space"},
+            "layout": {"engine": "remote Hugging Face Space"},
+            "translation": {"engine": "remote NLLB-200 fine-tuned EN-VI"},
+            "render": {"engine": "remote inpaint + render planner"},
         },
-        "image_size": {"width": 512, "height": 48},
-    }
-
-
-@app.get("/api/samples")
-async def list_samples(
-    page: int = Query(1, ge=1),
-    limit: int = Query(20, ge=1, le=100),
-):
-    """Paginated list of sample IDs."""
-    total = len(_sample_ids)
-    start = (page - 1) * limit
-    end = min(start + limit, total)
-    ids = _sample_ids[start:end]
-
-    samples = []
-    for sid in ids:
-        tit = _tit_lines[sid - 1] if sid <= len(_tit_lines) else ""
-        ocr = _ocr_lines[sid - 1] if sid <= len(_ocr_lines) else ""
-        samples.append({"id": sid, "tit": tit, "ocr": ocr})
-
-    return {
-        "page": page,
-        "limit": limit,
-        "total": total,
-        "total_pages": (total + limit - 1) // limit,
-        "samples": samples,
+        "image_size": {"width": "source", "height": "source"},
     }
 
 
 @app.get("/api/samples/{sample_id}")
 async def get_sample(sample_id: str):
-    """Full detail for a single sample — all pipeline stage URLs."""
-    tit = ""
-    ocr = ""
-    
-    # Check if sample_id is a live inference UUID
-    if "-" in sample_id or len(sample_id) > 10:
-        if not (LIVE_DIR / sample_id).exists():
-            raise HTTPException(404, f"Live Sample {sample_id} not found")
-        tit_path = LIVE_DIR / sample_id / "tit.txt"
-        tit = tit_path.read_text(encoding="utf-8") if tit_path.exists() else ""
-    else:
-        try:
-            sid_int = int(sample_id)
-        except ValueError:
-            raise HTTPException(422, "Invalid sample ID format")
-            
-        if sid_int not in _sample_ids:
-            raise HTTPException(404, f"Sample {sid_int} not found")
+    """Return one live upload result."""
+    if "-" not in sample_id and len(sample_id) <= 10:
+        raise HTTPException(404, "Precomputed samples have been removed")
 
-        tit = _tit_lines[sid_int - 1] if sid_int <= len(_tit_lines) else ""
-        ocr = _ocr_lines[sid_int - 1] if sid_int <= len(_ocr_lines) else ""
+    result_dir = LIVE_DIR / sample_id
+    if not result_dir.exists():
+        raise HTTPException(404, f"Live sample {sample_id} not found")
 
     base = "/api/images"
     return {
         "id": sample_id,
-        "tit": tit,
-        "ocr": ocr,
+        "tit": _read_text_file(result_dir / "tit.txt"),
+        "ocr": _read_text_file(result_dir / "ocr.txt"),
         "stages": {
-            "input":   f"{base}/input/{sample_id}",
-            "back":    f"{base}/back/{sample_id}",
+            "input": f"{base}/input/{sample_id}",
+            "back": f"{base}/back/{sample_id}",
             "text_en": f"{base}/text_en/{sample_id}",
             "text_vi": f"{base}/text_vi/{sample_id}",
-            "fuse":    f"{base}/fuse/{sample_id}",
+            "fuse": f"{base}/fuse/{sample_id}",
         },
     }
 
+
 @app.get("/api/images/{stage}/{sample_id}")
 async def get_image(stage: str, sample_id: str, download: bool = False):
-    """Serve a pipeline-stage image with cache headers."""
-    if stage not in PATHS:
+    """Serve a live pipeline-stage image with no-cache headers."""
+    if stage not in LIVE_STAGES:
         raise HTTPException(400, f"Unknown stage: {stage}")
 
-    # Check if sample_id is a UUID (live uploaded image)
-    if "-" in sample_id or len(sample_id) > 10:
-        img_path = LIVE_DIR / sample_id / f"{stage}.jpg"
-    else:
-        img_path = PATHS[stage] / f"{sample_id}.jpg"
-        
+    img_path = LIVE_DIR / sample_id / f"{stage}.jpg"
     if not img_path.exists():
         raise HTTPException(404, f"Image not found: {stage}/{sample_id}")
 
     headers = {
-        "Cache-Control": "public, max-age=86400, immutable",
+        "Cache-Control": "no-cache, no-store, must-revalidate",
+        "Pragma": "no-cache",
+        "Expires": "0",
         "X-Pipeline-Stage": stage,
         "Access-Control-Allow-Origin": "*",
         "Access-Control-Allow-Headers": "*",
         "Access-Control-Allow-Methods": "*",
     }
-    
     if download:
         headers["Content-Disposition"] = f'attachment; filename="{stage}_{sample_id}.jpg"'
 
-    return FileResponse(
-        img_path,
-        media_type="image/jpeg",
-        headers=headers,
-    )
+    return FileResponse(img_path, media_type="image/jpeg", headers=headers)
 
 
 @app.get("/api/download/{stage}/{sample_id}")
@@ -307,41 +172,30 @@ async def download_image(
     filename: str = Query("translated_image", description="Download filename (without extension)"),
     format: str = Query("jpg", description="Image format: jpg, png, or webp"),
 ):
-    """Download a pipeline-stage image with custom filename and format conversion."""
-    if stage not in PATHS:
+    """Download a live pipeline-stage image with custom filename and format conversion."""
+    if stage not in LIVE_STAGES:
         raise HTTPException(400, f"Unknown stage: {stage}")
 
     fmt = format.lower().strip()
     if fmt not in ("jpg", "jpeg", "png", "webp"):
         raise HTTPException(400, f"Unsupported format: {format}. Use jpg, png, or webp.")
-
-    # Resolve source image path
-    if "-" in sample_id or len(sample_id) > 10:
-        img_path = LIVE_DIR / sample_id / f"{stage}.jpg"
-    else:
-        img_path = PATHS[stage] / f"{sample_id}.jpg"
-
-    if not img_path.exists():
-        raise HTTPException(404, f"Image not found: {stage}/{sample_id}")
-
-    # Normalize format
     if fmt == "jpeg":
         fmt = "jpg"
 
-    # Map format to PIL format name and MIME type
+    img_path = LIVE_DIR / sample_id / f"{stage}.jpg"
+    if not img_path.exists():
+        raise HTTPException(404, f"Image not found: {stage}/{sample_id}")
+
     fmt_map = {
-        "jpg":  ("JPEG", "image/jpeg",  "jpg"),
-        "png":  ("PNG",  "image/png",   "png"),
-        "webp": ("WEBP", "image/webp",  "webp"),
+        "jpg": ("JPEG", "image/jpeg", "jpg"),
+        "png": ("PNG", "image/png", "png"),
+        "webp": ("WEBP", "image/webp", "webp"),
     }
     pil_fmt, mime_type, ext = fmt_map[fmt]
-
-    # Sanitize filename
-    safe_name = "".join(c for c in filename if c.isalnum() or c in (' ', '-', '_', '.')).strip()
+    safe_name = "".join(c for c in filename if c.isalnum() or c in (" ", "-", "_", ".")).strip()
     if not safe_name:
         safe_name = "translated_image"
 
-    # Convert image to requested format
     try:
         img = Image.open(img_path).convert("RGB")
         buf = io.BytesIO()
@@ -351,57 +205,16 @@ async def download_image(
         elif pil_fmt == "WEBP":
             save_kwargs["quality"] = 90
         img.save(buf, pil_fmt, **save_kwargs)
-        buf.seek(0)
     except Exception as e:
         raise HTTPException(500, f"Image conversion failed: {e}")
 
-    from fastapi.responses import StreamingResponse
     headers = {
         "Content-Disposition": f'attachment; filename="{safe_name}.{ext}"',
         "Access-Control-Allow-Origin": "*",
         "Access-Control-Allow-Headers": "*",
         "Access-Control-Allow-Methods": "*",
     }
-    return StreamingResponse(buf, media_type=mime_type, headers=headers)
-
-
-@app.get("/api/images/thumb/{stage}/{sample_id}")
-async def get_thumbnail(stage: str, sample_id: str):
-    """Serve a 256px-wide thumbnail (generated on demand, cached)."""
-    if stage not in PATHS:
-        raise HTTPException(400, f"Unknown stage: {stage}")
-
-    # Allow live UUID handling for thumbnails too
-    if "-" in sample_id or len(sample_id) > 10:
-        src_path = LIVE_DIR / sample_id / f"{stage}.jpg"
-    else:
-        src_path = PATHS[stage] / f"{sample_id}.jpg"
-        
-    if not src_path.exists():
-        raise HTTPException(404, f"Image not found: {stage}/{sample_id}")
-
-    thumb_path = THUMB_DIR / stage / f"{sample_id}.jpg"
-    if not thumb_path.exists():
-        thumb_path.parent.mkdir(parents=True, exist_ok=True)
-        try:
-            img = Image.open(src_path)
-            ratio = 256 / img.width
-            new_size = (256, max(1, int(img.height * ratio)))
-            img = img.resize(new_size, Image.LANCZOS)
-            img.save(thumb_path, "JPEG", quality=80)
-        except Exception as e:
-            raise HTTPException(500, f"Thumbnail generation failed: {e}")
-
-    return FileResponse(
-        thumb_path,
-        media_type="image/jpeg",
-        headers={
-            "Cache-Control": "public, max-age=604800, immutable",
-            "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Headers": "*",
-            "Access-Control-Allow-Methods": "*",
-        },
-    )
+    return Response(content=buf.getvalue(), media_type=mime_type, headers=headers)
 
 
 async def get_optional_user(request: Request):
@@ -423,8 +236,8 @@ async def get_optional_user(request: Request):
 @app.post("/api/upload")
 async def upload_and_match(request: Request, file: UploadFile = File(...)):
     """
-    Accept an uploaded image, save it securely, and sequence it 
-    through the live Pytorch pipeline. Queues execution if busy.
+    Accept an uploaded image, save it securely, and proxy it to the
+    deployed inference Space. The backend only stores API-facing results.
     """
     if not file.content_type or not file.content_type.startswith("image/"):
         raise HTTPException(400, "File must be an image")
@@ -446,24 +259,26 @@ async def upload_and_match(request: Request, file: UploadFile = File(...)):
     except Exception as e:
         raise HTTPException(400, f"Cannot process image: {e}")
 
-    # Mock mode removed, directly run real pipeline below
-
-    if not dbx_pipeline:
-        raise HTTPException(500, "Inference pipeline is not configured on this server")
-
-    # Use a lock to ensure only 1 inference runs on the GPU/MPS simultaneously
-    # to avoid Out-Of-Memory errors under multi-user concurrency.
-    async with inference_lock:
+    async with space_call_lock:
         try:
             tit = await asyncio.to_thread(
-                dbx_pipeline.run_inference, str(input_path), str(out_dir)
+                run_space_inference, str(input_path), str(out_dir)
+            )
+        except RemoteInferenceError as e:
+            import traceback
+            print("[Error] Remote Space inference failed:")
+            traceback.print_exc()
+            raise HTTPException(
+                502,
+                "Ket noi toi inference Space that bai. "
+                "Space co the dang khoi dong hoac dang ban; vui long thu lai sau vai phut.",
             )
         except Exception as e:
             import traceback
-            print("[Error] Inference pipeline crashed during run_inference:")
+            print("[Error] Unexpected backend proxy error:")
             traceback.print_exc()
-            raise HTTPException(500, f"Inference pipeline failed: {e}")
-
+            raise HTTPException(500, f"Backend proxy failed: {e}")
+    ocr = _read_text_file(out_dir / "ocr.txt")
     base = "/api/images"
     stages = {
         "input":   f"{base}/input/{uid}",
@@ -480,19 +295,21 @@ async def upload_and_match(request: Request, file: UploadFile = File(...)):
             "user_email": user["email"],
             "sample_id": uid,
             "tit": tit,
-            "ocr": "",
+            "ocr": ocr,
             "stages": stages,
             "created_at": datetime.now(timezone.utc)
         })
 
     return {
         "matched_id": uid,
-        "match_quality": "live_inference",
-        "hamming_distance": 0,
+        "match_quality": "remote_inference",
         "tit": tit,
-        "ocr": "",  # OCR skipped for live inputs
+        "ocr": ocr,
         "stages": stages,
     }
+
+
+# Manual fuse update
 
 class UpdateFuseRequest(BaseModel):
     image_data: str
@@ -557,12 +374,3 @@ async def delete_history(sample_id: str, user=Depends(get_current_user)):
     if result.deleted_count == 0:
         raise HTTPException(404, "History not found")
     return {"status": "ok"}
-
-
-@app.get("/api/random")
-async def random_sample():
-    """Return a random sample for demo purposes."""
-    if not _sample_ids:
-        raise HTTPException(500, "No samples available")
-    sid = random.choice(_sample_ids)
-    return await get_sample(str(sid))

@@ -55,9 +55,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       const newQueue = state.queue.filter((q) => q.id !== id);
       const newActiveId =
         state.activeId === id
-          ? newQueue.length > 0
-            ? newQueue[0].id
-            : null
+          ? newQueue.length > 0 ? newQueue[0].id : null
           : state.activeId;
       return { queue: newQueue, activeId: newActiveId };
     });
@@ -81,54 +79,72 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     set({ isProcessingAll: true });
 
     for (const item of idleItems) {
-      // Check if this item is still in queue (might have been removed)
-      const currentQueue = get().queue;
-      const currentItem = currentQueue.find((q) => q.id === item.id);
+      const currentItem = get().queue.find((q) => q.id === item.id);
       if (!currentItem || currentItem.status !== 'idle') continue;
 
-      // Set uploading
       set((state) => ({
         queue: state.queue.map((q) =>
-          q.id === item.id ? { ...q, status: 'uploading', progress: 10 } : q
+          q.id === item.id ? { ...q, status: 'uploading', progress: 5 } : q
         ),
         activeId: state.activeId ?? item.id,
       }));
 
-      // Progress simulation
-      const interval = setInterval(() => {
+      const updateItem = (patch: Partial<QueueItem>) => {
         set((state) => ({
-          queue: state.queue.map((q) =>
-            q.id === item.id && q.status === 'uploading'
-              ? { ...q, progress: q.progress < 90 ? q.progress + 5 : q.progress }
-              : q
-          ),
+          queue: state.queue.map((q) => q.id === item.id ? { ...q, ...patch } : q),
         }));
-      }, 300);
+      };
+
+      // Giả lập progress: tăng đều theo từng giai đoạn pipeline
+      // 5→25 (OCR) → 25→48 (Translate) → 48→72 (Inpaint) → 72→92 (Render)
+      const PROGRESS_STEPS = [
+        { target: 25, delay: 400  },
+        { target: 48, delay: 1200 },
+        { target: 72, delay: 2000 },
+        { target: 88, delay: 1500 },
+        { target: 92, delay: 800  },
+      ];
+      let stepIdx = 0;
+      let currentProgress = 5;
+      const timers: ReturnType<typeof setInterval>[] = [];
+      const clearTimers = () => timers.forEach(clearInterval);
+
+      const advanceProgress = () => {
+        if (stepIdx >= PROGRESS_STEPS.length) return;
+        const step = PROGRESS_STEPS[stepIdx];
+        const ticks = Math.ceil(step.delay / 80);
+        const inc = (step.target - currentProgress) / ticks;
+        let tick = 0;
+        const iv = setInterval(() => {
+          tick++;
+          currentProgress = Math.min(step.target, currentProgress + inc);
+          updateItem({ progress: Math.round(currentProgress) });
+          if (tick >= ticks) {
+            clearInterval(iv);
+            stepIdx++;
+            advanceProgress();
+          }
+        }, 80);
+        timers.push(iv);
+      };
+
+      advanceProgress();
+
+      const token = useAppStore.getState().token ?? undefined;
 
       try {
-        const token = useAppStore.getState().token;
-        const result = await uploadImage(item.file, token || undefined);
-        clearInterval(interval);
-        set((state) => ({
-          queue: state.queue.map((q) =>
-            q.id === item.id
-              ? { ...q, status: 'done', progress: 100, result }
-              : q
-          ),
-          // Set as activeId if nothing was active
-          activeId: state.activeId ?? item.id,
-        }));
-      } catch (err: unknown) {
-        clearInterval(interval);
-        const message =
-          err instanceof Error ? err.message : 'Translation failed';
-        set((state) => ({
-          queue: state.queue.map((q) =>
-            q.id === item.id
-              ? { ...q, status: 'error', error: message, progress: 0 }
-              : q
-          ),
-        }));
+        const result = await uploadImage(item.file, token);
+        clearTimers();
+        updateItem({ progress: 100 });
+        await new Promise((r) => setTimeout(r, 600));
+        updateItem({ status: 'done', result });
+      } catch (err) {
+        clearTimers();
+        updateItem({
+          status: 'error',
+          error: err instanceof Error ? err.message : 'Upload failed',
+          progress: 0,
+        });
       }
     }
 

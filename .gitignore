@@ -21,3 +21,6 @@ venv/
 # ─── Build outputs ────────────────────────────────────────────────────────────
 dist/
 build/
+
+# Codex temporary extraction folders
+.codex-tmp-*/

@@ -8,9 +8,9 @@
 
 The project consists of three main components:
 
-- **`BE-Models/`**: Model source code (PyTorch), training scripts, and the Backend API (FastAPI).
+- **`Space/`**: Hugging Face Space that loads OCR/translation/rendering models and runs inference.
+- **`BE-Models/`**: FastAPI backend for auth, history, result storage, and proxying uploads to the Space.
 - **`FE/`**: User interface (Frontend) built with React + Vite + TailwindCSS.
-- **`IIMT30k_Vi/`**: Sample dataset used for testing and evaluation.
 
 ---
 
@@ -32,12 +32,12 @@ cd BE-Models
 python -m venv venv
 source venv/bin/activate  # Or venv\Scripts\activate on Windows
 
-# Install dependencies
+# Install API dependencies
 pip install -r requirements.txt
 ```
 
-**Note on PyTorch:**
-The system automatically detects and uses Apple Metal (MPS) on Mac. For Windows/Linux with NVIDIA GPUs, ensure you install the CUDA-enabled version of `torch`.
+Set `VIETRANS_SPACE_URL` if you want the backend to call a custom deployed
+inference Space. The default is `https://masterdzzzz-vietrans-modelspace.hf.space`.
 
 ### 3. Frontend Setup (UI)
 
