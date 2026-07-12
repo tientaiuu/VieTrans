@@ -24,13 +24,6 @@ _INFERENCE_DIR = Path(__file__).resolve().parent
 if str(_INFERENCE_DIR) not in sys.path:
     sys.path.insert(0, str(_INFERENCE_DIR))
 
-# Import torch before Paddle/PaddleX touches the runtime on Windows. In this
-# environment Paddle's import chain can otherwise make torch fail to load shm.dll.
-try:
-    import torch as _torch_preload  # noqa: F401
-except Exception as torch_preload_err:
-    print(f"[Pipeline Patch] Torch preload failed: {torch_preload_err}")
-
 # --- PaddlePaddle PIR+oneDNN fix ---
 os.environ["FLAGS_use_mkldnn"] = "0"
 os.environ["FLAGS_enable_pir_in_executor"] = "0"
@@ -712,7 +705,13 @@ def _is_body_text_line(region, image_width):
     text = str(region.get("detector_text", "")).strip()
     x1, y1, x2, y2 = [float(v) for v in region.get("box", (0, 0, 0, 0))]
     box_w = max(1.0, x2 - x1)
-    word_count = len(re.findall(r"[A-Za-z]+", text))
+    words = re.findall(r"[A-Za-z]+", text)
+    word_count = len(words)
+    title_case_ratio = (
+        sum(1 for word in words if word[:1].isupper()) / max(1, word_count)
+    )
+    if word_count <= 5 and len(text) <= 48 and title_case_ratio >= 0.80:
+        return False
     return word_count >= 5 or len(text) >= 34 or box_w >= image_width * 0.32
 
 
@@ -1652,10 +1651,174 @@ def _draw_text_on_image(image, box, text, font_path, source_image=None, region=N
 # OpenCV Inpainting
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def _create_text_mask(image_shape, regions):
+def _refine_text_polygon_mask(image_np, polygon_mask, avg_h):
+    ys, xs = np.where(polygon_mask > 0)
+    if len(xs) < 24:
+        return polygon_mask
+
+    x1, y1 = int(xs.min()), int(ys.min())
+    x2, y2 = int(xs.max()) + 1, int(ys.max()) + 1
+    crop = image_np[y1:y2, x1:x2]
+    roi = polygon_mask[y1:y2, x1:x2] > 0
+    roi_area = int(roi.sum())
+    if crop.size == 0 or roi_area < 24:
+        return polygon_mask
+
+    gray = cv2.cvtColor(crop, cv2.COLOR_RGB2GRAY).astype(np.float32)
+    sigma = max(1.0, min(5.0, float(avg_h) * 0.12))
+    local_bg = cv2.GaussianBlur(gray, (0, 0), sigmaX=sigma, sigmaY=sigma)
+    contrast = gray - local_bg
+    chroma = crop.max(axis=2).astype(np.float32) - crop.min(axis=2).astype(np.float32)
+    neutral_limit = max(36.0, float(np.percentile(chroma[roi], 48)))
+    neutral = chroma <= neutral_limit
+
+    options = []
+    for polarity in (1.0, -1.0):
+        directional = contrast * polarity
+        threshold = max(10.0, float(np.percentile(directional[roi], 78)))
+        base = (directional >= threshold) & roi
+        options.extend(((base & neutral, True), (base, False)))
+
+    best_seed = None
+    best_score = -1.0
+    roi_w = max(1, x2 - x1)
+    for seed, prefers_neutral in options:
+        count = int(seed.sum())
+        density = count / max(1, roi_area)
+        if density < 0.004 or density > 0.32:
+            continue
+        _, seed_x = np.where(seed)
+        if len(seed_x) == 0:
+            continue
+        span = (int(seed_x.max()) - int(seed_x.min()) + 1) / roi_w
+        column_coverage = np.count_nonzero(seed.any(axis=0)) / roi_w
+        if span < 0.28 or column_coverage < 0.06:
+            continue
+        score = (
+            (1.35 * span)
+            + column_coverage
+            + (0.28 if prefers_neutral else 0.0)
+            - (1.6 * abs(density - 0.10))
+        )
+        if score > best_score:
+            best_score = score
+            best_seed = seed
+
+    if best_seed is None:
+        return polygon_mask
+
+    close_size = 3 if avg_h < 18 else 5
+    close_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (close_size, close_size))
+    seed_u8 = best_seed.astype(np.uint8) * 255
+    seed_u8[~roi] = 0
+    preferred_dilation = 1 if avg_h < 18 else (2 if avg_h < 48 else 3)
+    for dilation in range(preferred_dilation, -1, -1):
+        if dilation:
+            kernel_size = (2 * dilation) + 1
+            kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (kernel_size, kernel_size))
+            refined_crop = cv2.dilate(seed_u8, kernel, iterations=1)
+        else:
+            refined_crop = seed_u8.copy()
+        refined_crop = cv2.morphologyEx(refined_crop, cv2.MORPH_CLOSE, close_kernel)
+        refined_crop[~roi] = 0
+        refined_density = int(np.count_nonzero(refined_crop)) / max(1, roi_area)
+        if 0.015 <= refined_density <= 0.84:
+            refined = np.zeros_like(polygon_mask)
+            refined[y1:y2, x1:x2] = refined_crop
+            return refined
+
+    refined = np.zeros_like(polygon_mask)
+    refined[y1:y2, x1:x2] = best_seed.astype(np.uint8) * 255
+    return refined
+
+
+def _render_ocr_region_mask(image_shape, region):
+    h, w = image_shape[:2]
+    rendered = Image.new("L", (w, h), 0)
+    draw = ImageDraw.Draw(rendered)
+    font_path = _find_system_font()
+    if not font_path:
+        return np.zeros((h, w), dtype=np.uint8)
+
+    source_lines = region.get("source_lines") or [{
+        "text": region.get("detector_text", ""),
+        "box": region.get("box", (0, 0, 0, 0)),
+    }]
+    for source_line in source_lines:
+        text = str(source_line.get("text", "")).strip()
+        box = source_line.get("box")
+        if not text or not box or len(box) < 4:
+            continue
+        x1, y1, x2, y2 = _safe_box(box, w, h)
+        box_w, box_h = max(1, x2 - x1), max(1, y2 - y1)
+        max_size = max(6, min(160, int(round(box_h * 1.45))))
+        fitted = None
+        for size in range(max_size, 5, -1):
+            font = _load_font(font_path, size)
+            bbox = draw.textbbox((0, 0), text, font=font)
+            text_w = max(1, bbox[2] - bbox[0])
+            text_h = max(1, bbox[3] - bbox[1])
+            if text_w <= box_w * 1.08 and text_h <= box_h * 1.12:
+                fitted = (font, bbox, text_w, text_h)
+                break
+        if fitted is None:
+            continue
+
+        font, bbox, text_w, text_h = fitted
+        stroke_width = max(1, min(3, int(round(box_h * 0.07))))
+        x = x1 + ((box_w - text_w) / 2.0) - bbox[0]
+        y = y1 + ((box_h - text_h) / 2.0) - bbox[1]
+        draw.text(
+            (x, y),
+            text,
+            fill=255,
+            font=font,
+            stroke_width=stroke_width,
+            stroke_fill=255,
+        )
+
+    rendered_np = np.asarray(rendered, dtype=np.uint8)
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+    return cv2.dilate(rendered_np, kernel, iterations=1)
+
+
+def _split_text_region_lines(region):
+    polygons = region.get("mask_polygons") or []
+    source_lines = region.get("source_lines") or []
+    if len(polygons) <= 1:
+        return [region]
+
+    units = []
+    for idx, polygon in enumerate(polygons):
+        source_line = source_lines[idx] if idx < len(source_lines) else {}
+        line_box = source_line.get("box") or _polygon_to_box(polygon)
+        line_text = str(source_line.get("text", "")).strip()
+        line_h = max(1.0, float(line_box[3]) - float(line_box[1]))
+        units.append({
+            **region,
+            "polygon": polygon,
+            "mask_polygons": [polygon],
+            "source_lines": [source_line] if source_line else [],
+            "box": line_box,
+            "detector_text": line_text,
+            "layout_type": "line",
+            "line_count": 1,
+            "avg_line_height": line_h,
+        })
+    return units
+
+
+def _create_text_mask(image_or_shape, regions):
+    image_np = image_or_shape if isinstance(image_or_shape, np.ndarray) else None
+    image_shape = image_np.shape if image_np is not None else image_or_shape
     h, w = image_shape[:2]
     mask = np.zeros((h, w), dtype=np.uint8)
     for region in regions:
+        units = _split_text_region_lines(region)
+        if image_np is not None and len(units) > 1:
+            for unit in units:
+                mask = cv2.max(mask, _create_text_mask(image_np, [unit]))
+            continue
         region_mask = np.zeros((h, w), dtype=np.uint8)
         polygons = region.get("mask_polygons") or [region["polygon"]]
         for raw_polygon in polygons:
@@ -1666,16 +1829,15 @@ def _create_text_mask(image_shape, regions):
         if avg_h <= 0:
             x1, y1, x2, y2 = [float(v) for v in region.get("box", (0, 0, 0, 0))]
             avg_h = max(1.0, y2 - y1)
-        is_paragraph = region.get("layout_type") == "paragraph"
-        if avg_h < 18:
-            k, iterations = (3 if is_paragraph else 2), 1
-        elif avg_h < 44:
-            k, iterations = 3, 1
+        if image_np is not None:
+            region_mask = _refine_text_polygon_mask(image_np, region_mask, avg_h)
+            rendered_mask = _render_ocr_region_mask(image_np.shape, region)
+            region_mask = cv2.max(region_mask, rendered_mask)
         else:
-            k = 3 if is_paragraph else 5
-            iterations = 1
-        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k))
-        region_mask = cv2.dilate(region_mask, kernel, iterations=iterations)
+            is_paragraph = region.get("layout_type") == "paragraph"
+            k = 3 if is_paragraph or avg_h < 44 else 5
+            kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k))
+            region_mask = cv2.dilate(region_mask, kernel, iterations=1)
         mask = cv2.max(mask, region_mask)
     return mask
 
@@ -1692,12 +1854,8 @@ def _inpaint_radius_for_regions(regions):
         heights.append(avg_h)
     median_h = _median_float(heights) or 24.0
     if has_paragraph:
-        return 3 if median_h < 42 else 4
-    if median_h < 18:
-        return 2
-    if median_h < 42:
-        return 3
-    return 4 if has_paragraph else 5
+        return 2 if median_h < 48 else 3
+    return 2 if median_h < 56 else 3
 
 
 def _mask_bbox(mask, pad=0):
@@ -1712,31 +1870,81 @@ def _mask_bbox(mask, pad=0):
     return x1, y1, x2, y2
 
 
-def _fill_uniform_text_background(image_np, region_mask):
-    bbox = _mask_bbox(region_mask, pad=10)
+def _fill_uniform_text_background(
+    image_np,
+    region_mask,
+    fill_mask=None,
+    min_dominant_ratio=0.60,
+):
+    target_mask = fill_mask if fill_mask is not None else region_mask
+    bbox = _mask_bbox(target_mask, pad=10)
     if bbox is None:
         return False
     x1, y1, x2, y2 = bbox
     crop = image_np[y1:y2, x1:x2].astype(np.float32)
-    mask_crop = region_mask[y1:y2, x1:x2] > 0
+    mask_crop = target_mask[y1:y2, x1:x2] > 0
+    text_crop = region_mask[y1:y2, x1:x2] > 0
     if crop.size == 0 or int(mask_crop.sum()) == 0:
         return False
 
-    avoid = cv2.dilate(mask_crop.astype(np.uint8), np.ones((5, 5), dtype=np.uint8), iterations=1) > 0
-    bg_pixels = crop[~avoid]
-    if len(bg_pixels) < 40:
-        bg_pixels = crop[~mask_crop]
+    avoid = cv2.dilate(text_crop.astype(np.uint8), np.ones((5, 5), dtype=np.uint8), iterations=1) > 0
+    row_support = mask_crop.any(axis=1)[:, None]
+    sample_mask = (~mask_crop) & row_support & ~avoid
+    if int(sample_mask.sum()) < 40:
+        sample_mask = mask_crop & ~avoid
+    if int(sample_mask.sum()) < 40:
+        sample_mask = ~avoid
+    if int(sample_mask.sum()) < 40:
+        sample_mask = ~text_crop
+    bg_pixels = crop[sample_mask]
     if len(bg_pixels) < 40:
         return False
 
     bg_color = np.median(bg_pixels, axis=0)
     distances = np.linalg.norm(bg_pixels - bg_color, axis=1)
-    if float(np.percentile(distances, 85)) > 28.0:
-        return False
+    dominant = distances <= 24.0
+    if float(np.mean(dominant)) >= min_dominant_ratio:
+        crop[mask_crop] = np.median(bg_pixels[dominant], axis=0)
+    else:
+        sample_y, sample_x = np.where(sample_mask)
+        if len(sample_x) < 40:
+            return False
+        scale = max(1.0, float(max(crop.shape[:2])))
+        design = np.column_stack((
+            sample_x.astype(np.float32) / scale,
+            sample_y.astype(np.float32) / scale,
+            np.ones(len(sample_x), dtype=np.float32),
+        ))
+        selected = np.ones(len(sample_x), dtype=bool)
+        coefficients = None
+        residuals = None
+        for _ in range(3):
+            if int(selected.sum()) < 40:
+                return False
+            coefficients, _, _, _ = np.linalg.lstsq(
+                design[selected],
+                bg_pixels[selected],
+                rcond=None,
+            )
+            predicted = design @ coefficients
+            residuals = np.linalg.norm(bg_pixels - predicted, axis=1)
+            cutoff = max(12.0, float(np.percentile(residuals[selected], 72)))
+            selected = residuals <= cutoff
+        if (
+            coefficients is None
+            or residuals is None
+            or float(np.mean(selected)) < 0.55
+            or float(np.percentile(residuals[selected], 85)) > 18.0
+        ):
+            return False
 
-    alpha = cv2.GaussianBlur((mask_crop.astype(np.float32) * 255.0), (3, 3), 0) / 255.0
-    alpha[mask_crop] = 1.0
-    crop[:] = crop * (1.0 - alpha[..., None]) + bg_color[None, None, :] * alpha[..., None]
+        target_y, target_x = np.where(mask_crop)
+        target_design = np.column_stack((
+            target_x.astype(np.float32) / scale,
+            target_y.astype(np.float32) / scale,
+            np.ones(len(target_x), dtype=np.float32),
+        ))
+        crop[target_y, target_x] = target_design @ coefficients
     image_np[y1:y2, x1:x2] = np.clip(crop, 0, 255).astype(image_np.dtype)
     return True
 
@@ -1747,9 +1955,17 @@ def _inpaint_text(image_np, mask, regions=None):
     cleaned = image_np.copy()
     remaining_mask = mask.copy()
     for region in regions or []:
-        region_mask = _create_text_mask(image_np.shape, [region])
-        if _fill_uniform_text_background(cleaned, region_mask):
-            remaining_mask[region_mask > 0] = 0
+        min_dominant_ratio = 0.52 if region.get("layout_type") == "paragraph" else 0.60
+        for unit in _split_text_region_lines(region):
+            region_mask = _create_text_mask(image_np, [unit])
+            polygon_mask = _create_text_mask(image_np.shape, [unit])
+            if _fill_uniform_text_background(
+                cleaned,
+                region_mask,
+                fill_mask=polygon_mask,
+                min_dominant_ratio=min_dominant_ratio,
+            ):
+                remaining_mask[region_mask > 0] = 0
     if remaining_mask.max() == 0:
         return cleaned
     return cv2.inpaint(
@@ -2543,7 +2759,7 @@ class DebackPipeline:
 
         # ─── Stage 3: Inpainting — chỉ xóa vùng thực sự thay đổi ────────────
         print("[Pipeline] Stage 3: Inpainting…")
-        mask          = _create_text_mask(original_np.shape, changed_regions)
+        mask          = _create_text_mask(original_np, changed_regions)
         inpainted_np  = _inpaint_text(original_np, mask, changed_regions)
         inpainted_pil = Image.fromarray(inpainted_np)
         inpainted_pil.save(back_path, "JPEG", quality=95)
@@ -2689,7 +2905,7 @@ class DebackPipeline:
         yield {"event": "stage", "stage": "inpaint", "progress": 38,
                "message": "Đang xóa chữ gốc khỏi ảnh..."}
 
-        mask          = _create_text_mask(original_np.shape, changed_regions)
+        mask          = _create_text_mask(original_np, changed_regions)
         inpainted_np  = _inpaint_text(original_np, mask, changed_regions)
         inpainted_pil = Image.fromarray(inpainted_np)
         inpainted_pil.save(back_path, "JPEG", quality=95)

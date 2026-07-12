@@ -1,15 +1,57 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Eye, EyeOff, X, Loader2, CheckCircle2, AlertCircle } from 'lucide-react';
 import { useAppStore } from '../../stores/useAppStore';
-import { registerUser, loginUser, forgotPassword } from '../../api';
+import { registerUser, loginUser, forgotPassword, loginWithGoogle, type AuthResponse } from '../../api';
 
 type TabType = 'login' | 'signup' | 'forgot';
+
+type GoogleCredentialResponse = {
+  credential?: string;
+  select_by?: string;
+};
+
+declare global {
+  interface Window {
+    google?: {
+      accounts: {
+        id: {
+          initialize: (config: {
+            client_id: string;
+            callback: (response: GoogleCredentialResponse) => void;
+            ux_mode?: 'popup' | 'redirect';
+          }) => void;
+          renderButton: (
+            parent: HTMLElement,
+            options: {
+              theme?: 'outline' | 'filled_blue' | 'filled_black';
+              size?: 'large' | 'medium' | 'small';
+              type?: 'standard' | 'icon';
+              shape?: 'rectangular' | 'pill' | 'circle' | 'square';
+              text?: 'signin_with' | 'signup_with' | 'continue_with' | 'signin';
+              width?: number;
+            }
+          ) => void;
+        };
+      };
+    };
+  }
+}
+
+const DEFAULT_GOOGLE_CLIENT_ID = '49147050548-0h30og1tgnkp2k0q8eqjc90uojqsn5bv.apps.googleusercontent.com';
+const GOOGLE_CLIENT_ID = (
+  (import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined)?.trim()
+  || DEFAULT_GOOGLE_CLIENT_ID
+);
+const GOOGLE_SCRIPT_SRC = 'https://accounts.google.com/gsi/client';
+const SHOW_LOCAL_RESET_TOKEN = import.meta.env.DEV
+  && import.meta.env.VITE_SHOW_RESET_TOKEN === 'true';
 
 export const AuthPage: React.FC = () => {
   const { login } = useAppStore();
   const navigate = useNavigate();
   const location = useLocation();
+  const googleButtonRef = useRef<HTMLDivElement | null>(null);
 
   const referrerPath = (location.state as { from?: string } | null)?.from || '/';
   const initialTab: TabType = location.pathname === '/signup' ? 'signup' : 'login';
@@ -23,6 +65,8 @@ export const AuthPage: React.FC = () => {
   const [isOpen, setIsOpen] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
+  const [googleReady, setGoogleReady] = useState(false);
 
   // API state
   const [loading, setLoading] = useState(false);
@@ -55,6 +99,86 @@ export const AuthPage: React.FC = () => {
     }, 300);
   };
 
+  const completeLogin = useCallback((res: AuthResponse) => {
+    login(res.user.fullName, res.user.email, res.token, res.user.avatar);
+    setIsOpen(false);
+    setTimeout(() => {
+      navigate(referrerPath);
+    }, 300);
+  }, [login, navigate, referrerPath]);
+
+  const handleGoogleCredential = useCallback(async (response: GoogleCredentialResponse) => {
+    if (!response.credential) {
+      setError('Google did not return a sign-in credential.');
+      return;
+    }
+
+    setGoogleLoading(true);
+    setError('');
+    setSuccess('');
+    try {
+      const res = await loginWithGoogle(response.credential, rememberMe);
+      completeLogin(res);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Google sign-in failed');
+    } finally {
+      setGoogleLoading(false);
+    }
+  }, [completeLogin, rememberMe]);
+
+  useEffect(() => {
+    if (tab !== 'login' || !GOOGLE_CLIENT_ID) {
+      setGoogleReady(false);
+      return;
+    }
+
+    let cancelled = false;
+    const renderGoogleButton = () => {
+      if (cancelled || !window.google?.accounts?.id || !googleButtonRef.current) return;
+
+      window.google.accounts.id.initialize({
+        client_id: GOOGLE_CLIENT_ID,
+        callback: handleGoogleCredential,
+        ux_mode: 'popup',
+      });
+
+      googleButtonRef.current.innerHTML = '';
+      window.google.accounts.id.renderButton(googleButtonRef.current, {
+        theme: 'outline',
+        size: 'large',
+        type: 'standard',
+        shape: 'rectangular',
+        text: 'signin_with',
+        width: Math.min(424, googleButtonRef.current.clientWidth || 424),
+      });
+      setGoogleReady(true);
+    };
+
+    if (window.google?.accounts?.id) {
+      renderGoogleButton();
+      return () => { cancelled = true; };
+    }
+
+    let script = document.querySelector<HTMLScriptElement>(`script[src="${GOOGLE_SCRIPT_SRC}"]`);
+    if (!script) {
+      script = document.createElement('script');
+      script.src = GOOGLE_SCRIPT_SRC;
+      script.async = true;
+      script.defer = true;
+      document.body.appendChild(script);
+    }
+
+    script.addEventListener('load', renderGoogleButton);
+    script.addEventListener('error', () => {
+      if (!cancelled) setError('Could not load Google sign-in. Please try again.');
+    });
+
+    return () => {
+      cancelled = true;
+      script?.removeEventListener('load', renderGoogleButton);
+    };
+  }, [handleGoogleCredential, tab]);
+
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
@@ -74,7 +198,10 @@ export const AuthPage: React.FC = () => {
       setLoading(true);
       try {
         const res = await forgotPassword(email);
-        setSuccess(res.message);
+        const localResetUrl = SHOW_LOCAL_RESET_TOKEN && res.resetToken
+          ? `${window.location.origin}/reset-password?token=${encodeURIComponent(res.resetToken)}`
+          : '';
+        setSuccess(localResetUrl ? `${res.message} Local reset link: ${localResetUrl}` : res.message);
       } catch (err: unknown) {
         setError(err instanceof Error ? err.message : 'Request failed');
       } finally {
@@ -115,11 +242,7 @@ export const AuthPage: React.FC = () => {
     setLoading(true);
     try {
       const res = await loginUser(email, password, rememberMe);
-      login(res.user.fullName, res.user.email, res.token);
-      setIsOpen(false);
-      setTimeout(() => {
-        navigate(referrerPath);
-      }, 300);
+      completeLogin(res);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Login failed');
     } finally {
@@ -295,31 +418,25 @@ export const AuthPage: React.FC = () => {
             <>
               <div className="auth-sep" aria-hidden="true" />
 
-              <button type="button" className="auth-google">
-                <svg
-                  className="auth-google-mark"
-                  viewBox="0 0 48 48"
-                  aria-hidden="true"
-                >
-                  <path
-                    fill="#FFC107"
-                    d="M43.611 20.083H42V20H24v8h11.303C33.654 32.657 29.195 36 24 36c-6.627 0-12-5.373-12-12S17.373 12 24 12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.052 6.053 29.277 4 24 4C12.955 4 4 12.955 4 24s8.955 20 20 20s20-8.955 20-20c0-1.341-.138-2.65-.389-3.917"
+              {GOOGLE_CLIENT_ID ? (
+                <div className="auth-google-shell">
+                  <div
+                    ref={googleButtonRef}
+                    className={`auth-google-native ${googleReady ? 'is-ready' : ''}`}
+                    aria-busy={googleLoading}
                   />
-                  <path
-                    fill="#FF3D00"
-                    d="M6.306 14.691l6.571 4.819C14.655 15.108 18.961 12 24 12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.052 6.053 29.277 4 24 4c-7.682 0-14.417 4.337-17.694 10.691"
-                  />
-                  <path
-                    fill="#4CAF50"
-                    d="M24 44c5.176 0 9.861-1.977 13.409-5.192l-6.19-5.238C29.143 35.091 26.715 36 24 36c-5.174 0-9.625-3.328-11.287-7.946l-6.522 5.025C9.428 39.556 16.227 44 24 44"
-                  />
-                  <path
-                    fill="#1976D2"
-                    d="M43.611 20.083H42V20H24v8h11.303c-.793 2.28-2.254 4.244-4.087 5.57c.001-.001 6.191 5.238 6.191 5.238C36.971 39.203 44 34 44 24c0-1.341-.138-2.65-.389-3.917"
-                  />
-                </svg>
-                <span>Or sign in with Google</span>
-              </button>
+                  {googleLoading && (
+                    <div className="auth-google-loading">
+                      <Loader2 size={16} className="auth-spinner" />
+                      <span>Signing in with Google...</span>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <button type="button" className="auth-google" disabled>
+                  <span>Google sign-in is not configured</span>
+                </button>
+              )}
             </>
           )}
 

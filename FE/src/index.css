@@ -1121,9 +1121,51 @@ nav {
   transition: transform .18s, background .18s;
 }
 
+.auth-google:disabled {
+  opacity: .62;
+  transform: none;
+}
+
 .auth-google:hover {
   background: #1b1b1b;
   transform: translateY(-1px);
+}
+
+.auth-google:disabled:hover {
+  background: #252525;
+  transform: none;
+}
+
+.auth-google-shell {
+  position: relative;
+  width: 100%;
+  min-height: 52px;
+}
+
+.auth-google-native {
+  min-height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.auth-google-native iframe {
+  margin: 0 auto !important;
+}
+
+.auth-google-loading {
+  position: absolute;
+  inset: 0;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--paper) 88%, white 12%);
+  border: 1px solid color-mix(in srgb, var(--ink) 10%, transparent);
+  color: var(--ink2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 700;
 }
 
 .auth-google-mark {

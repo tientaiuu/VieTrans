@@ -2,7 +2,7 @@ import React from 'react';
 import { NavLink, Link, useNavigate } from 'react-router-dom';
 import {
   Bell, ChevronDown, Heart, LogOut, MessageSquare,
-  Settings, Sparkles, UserRound, Info, ImageIcon, AlertCircle,
+  Settings, Sparkles, UserRound, Info, ImageIcon, AlertCircle, CreditCard,
   Menu, X as XIcon,
 } from 'lucide-react';
 import { useAppStore } from '../../stores/useAppStore';
@@ -265,6 +265,12 @@ export const Navbar: React.FC = () => {
                     <span className="account-dropdown-item-main">
                       <UserRound size={15} className="account-dropdown-icon" />
                       <span>Personal Information</span>
+                    </span>
+                  </button>
+                  <button className="account-dropdown-item" type="button" onClick={() => handleAccountAction('/account/pricing')}>
+                    <span className="account-dropdown-item-main">
+                      <CreditCard size={15} className="account-dropdown-icon" />
+                      <span>Pricing</span>
                     </span>
                   </button>
                   <button className="account-dropdown-item" type="button" onClick={() => handleAccountAction('/account/information')}>

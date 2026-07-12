@@ -4,6 +4,26 @@
  */
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+export const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
+
+const ALLOWED_UPLOAD_MIME_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
+const ALLOWED_UPLOAD_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.webp'];
+
+export function validateImageFile(file: File): string | null {
+  const lowerName = file.name.toLowerCase();
+  const hasAllowedExtension = ALLOWED_UPLOAD_EXTENSIONS.some((ext) => lowerName.endsWith(ext));
+
+  if (!hasAllowedExtension) {
+    return 'Only JPG, PNG, and WebP images are supported.';
+  }
+  if (!ALLOWED_UPLOAD_MIME_TYPES.has(file.type)) {
+    return 'The selected file type is not supported.';
+  }
+  if (file.size > MAX_UPLOAD_BYTES) {
+    return 'Image is too large. Maximum size is 10MB.';
+  }
+  return null;
+}
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -15,18 +35,71 @@ export interface PipelineStages {
   fuse: string;
 }
 
+export type PipelineStepStatus = 'complete' | 'warning' | 'skipped' | 'pending' | 'error';
+
+export interface PipelineStep {
+  key: string;
+  label: string;
+  detail: string;
+  image?: string | null;
+  duration_seconds?: number | null;
+  status?: PipelineStepStatus;
+  metrics?: Record<string, string | number | boolean | null | undefined>;
+}
+
+export interface PipelineTranslationRecord {
+  index?: number | null;
+  source_text: string;
+  translated_text: string;
+  keep_original?: boolean;
+  confidence?: number | null;
+  box?: number[] | null;
+}
+
+export interface PipelineDebugSummary {
+  sample_id?: string | number;
+  counts?: Record<string, string | number | null | undefined>;
+  timings?: Record<string, number | null | undefined>;
+  qa?: Record<string, unknown>;
+  steps?: PipelineStep[];
+  translation_records?: PipelineTranslationRecord[];
+  translation_record_count?: number;
+}
+
 export interface SampleDetail {
   id: number | string;
   tit: string;
   ocr: string;
   stages: PipelineStages;
+  pipeline?: PipelineDebugSummary;
 }
 
 export interface UploadResult {
   matched_id: number | string;
+  match_quality?: string;
   tit: string;
   ocr: string;
   stages: PipelineStages;
+  latency?: Record<string, number | null | undefined>;
+  pipeline?: PipelineDebugSummary;
+  edit_token?: string;
+}
+
+export type UploadJobStatus = 'queued' | 'running' | 'succeeded' | 'failed';
+
+export interface UploadJobResponse {
+  job_id: string;
+  sample_id: string;
+  matched_id?: number | string;
+  status: UploadJobStatus;
+  poll_url?: string;
+  edit_token?: string;
+  result?: UploadResult;
+  error?: string;
+  created_at?: string | null;
+  updated_at?: string | null;
+  started_at?: string | null;
+  completed_at?: string | null;
 }
 
 export interface PipelineInfo {
@@ -36,9 +109,37 @@ export interface PipelineInfo {
   image_size: { width: number | string; height: number | string };
 }
 
+const UPLOAD_JOB_POLL_INTERVAL_MS = 1500;
+const UPLOAD_JOB_TIMEOUT_MS = 20 * 60 * 1000;
+
+function isUploadResult(value: unknown): value is UploadResult {
+  return !!value
+    && typeof value === 'object'
+    && 'matched_id' in value
+    && 'stages' in value
+    && 'tit' in value;
+}
+
+function isUploadJobResponse(value: unknown): value is UploadJobResponse {
+  return !!value
+    && typeof value === 'object'
+    && 'job_id' in value
+    && 'status' in value;
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 // ─── API Functions ──────────────────────────────────────────────────────────
 
-export async function checkHealth(): Promise<{ status: string; total_samples: number }> {
+export async function checkHealth(): Promise<{
+  status: string;
+  total_samples: number;
+  queued_jobs?: number;
+  upload_workers?: number;
+  space_concurrency?: number;
+}> {
   const res = await fetch(`${API_BASE}/api/health`);
   if (!res.ok) throw new Error('Backend unavailable');
   return res.json();
@@ -56,7 +157,54 @@ export async function getSample(id: number | string): Promise<SampleDetail> {
   return res.json();
 }
 
-export async function uploadImage(file: File, token?: string): Promise<UploadResult> {
+export async function getUploadJob(jobId: string, token?: string): Promise<UploadJobResponse> {
+  const headers: HeadersInit = {};
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
+  const res = await fetch(`${API_BASE}/api/jobs/${encodeURIComponent(jobId)}`, { headers });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: 'Failed to fetch upload job' }));
+    throw new Error(err.detail || 'Failed to fetch upload job');
+  }
+  return res.json();
+}
+
+export async function waitForUploadJob(
+  initialJob: UploadJobResponse,
+  token?: string,
+  onUpdate?: (job: UploadJobResponse) => void
+): Promise<UploadResult> {
+  let job = initialJob;
+  const startedAt = Date.now();
+  onUpdate?.(job);
+
+  while (Date.now() - startedAt < UPLOAD_JOB_TIMEOUT_MS) {
+    if (job.status === 'succeeded' && job.result) {
+      return {
+        ...job.result,
+        edit_token: initialJob.edit_token ?? job.result.edit_token,
+      };
+    }
+    if (job.status === 'failed') {
+      throw new Error(job.error || 'Upload failed');
+    }
+
+    await delay(UPLOAD_JOB_POLL_INTERVAL_MS);
+    job = await getUploadJob(job.job_id, token);
+    onUpdate?.(job);
+  }
+
+  throw new Error('Upload job timed out. Please check your history or try again later.');
+}
+
+export async function createUploadJob(file: File, token?: string): Promise<UploadJobResponse> {
+  const validationError = validateImageFile(file);
+  if (validationError) {
+    throw new Error(validationError);
+  }
+
   const formData = new FormData();
   formData.append('file', file);
 
@@ -74,13 +222,46 @@ export async function uploadImage(file: File, token?: string): Promise<UploadRes
     const err = await res.json().catch(() => ({ detail: 'Upload failed' }));
     throw new Error(err.detail || 'Upload failed');
   }
-  return res.json();
+
+  const data = await res.json();
+  if (isUploadResult(data)) {
+    return {
+      job_id: String(data.matched_id),
+      sample_id: String(data.matched_id),
+      matched_id: data.matched_id,
+      status: 'succeeded',
+      result: data,
+      edit_token: data.edit_token,
+    };
+  }
+  if (isUploadJobResponse(data)) {
+    return data;
+  }
+  throw new Error('Upload failed: unexpected backend response');
 }
 
-export async function updateFuseImage(sampleId: string | number, imageData: string): Promise<void> {
+export async function uploadImage(file: File, token?: string): Promise<UploadResult> {
+  const job = await createUploadJob(file, token);
+  return waitForUploadJob(job, token);
+}
+
+export async function updateFuseImage(
+  sampleId: string | number,
+  imageData: string,
+  token?: string | null,
+  editToken?: string | null
+): Promise<void> {
+  const headers: HeadersInit = { 'Content-Type': 'application/json' };
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  if (editToken) {
+    headers['X-Edit-Token'] = editToken;
+  }
+
   const res = await fetch(`${API_BASE}/api/update-fuse/${sampleId}`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers,
     body: JSON.stringify({ image_data: imageData }),
   });
   if (!res.ok) {
@@ -94,6 +275,7 @@ export interface HistoryItem {
   tit: string;
   ocr: string;
   stages: PipelineStages;
+  pipeline?: PipelineDebugSummary;
   created_at: string;
 }
 
@@ -193,6 +375,7 @@ export interface AuthUser {
   fullName: string;
   email: string;
   username: string;
+  avatar?: string | null;
 }
 
 export interface AuthResponse {
@@ -203,6 +386,17 @@ export interface AuthResponse {
 export interface MessageResponse {
   message: string;
   resetToken?: string;
+}
+
+export interface ApiKeyInfo {
+  hasKey: boolean;
+  lastFour?: string | null;
+  createdAt?: string | null;
+  lastUsedAt?: string | null;
+}
+
+export interface ApiKeyResponse extends ApiKeyInfo {
+  apiKey: string;
 }
 
 // ─── Auth API Functions ─────────────────────────────────────────────────────
@@ -242,6 +436,22 @@ export async function loginUser(
   return res.json();
 }
 
+export async function loginWithGoogle(
+  credential: string,
+  rememberMe = true
+): Promise<AuthResponse> {
+  const res = await fetch(`${API_BASE}/api/auth/google`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ credential, rememberMe }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: 'Google sign-in failed' }));
+    throw new Error(err.detail || 'Google sign-in failed');
+  }
+  return res.json();
+}
+
 export async function forgotPassword(email: string): Promise<MessageResponse> {
   const res = await fetch(`${API_BASE}/api/auth/forgot-password`, {
     method: 'POST',
@@ -259,14 +469,18 @@ export async function resetPassword(
   token: string,
   newPassword: string
 ): Promise<MessageResponse> {
+  const resetToken = token.trim();
   const res = await fetch(`${API_BASE}/api/auth/reset-password`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ token, newPassword }),
+    body: JSON.stringify({ token: resetToken, newPassword, new_password: newPassword }),
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: 'Reset failed' }));
-    throw new Error(err.detail || 'Reset failed');
+    const detail = Array.isArray(err.detail)
+      ? err.detail.map((item: { msg?: string }) => item.msg).filter(Boolean).join(', ')
+      : err.detail;
+    throw new Error(detail || 'Reset failed');
   }
   return res.json();
 }
@@ -276,6 +490,29 @@ export async function getCurrentUser(token: string): Promise<AuthUser> {
     headers: { Authorization: `Bearer ${token}` },
   });
   if (!res.ok) throw new Error('Not authenticated');
+  return res.json();
+}
+
+export async function getApiKeyInfo(token: string): Promise<ApiKeyInfo> {
+  const res = await fetch(`${API_BASE}/api/auth/api-key`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: 'Failed to load API key' }));
+    throw new Error(err.detail || 'Failed to load API key');
+  }
+  return res.json();
+}
+
+export async function generateApiKey(token: string): Promise<ApiKeyResponse> {
+  const res = await fetch(`${API_BASE}/api/auth/api-key`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: 'Failed to generate API key' }));
+    throw new Error(err.detail || 'Failed to generate API key');
+  }
   return res.json();
 }
 

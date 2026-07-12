@@ -19,19 +19,6 @@ STRONG_VIETNAMESE_WORDS = {
 }
 
 UI_TRANSLATION_GLOSSARY = {
-    "authorized parking only": "Chỉ dành cho đỗ xe",
-    "parking only": "Chỉ dành cho đỗ xe",
-    "add custom text here": "Thêm nội dung tùy chỉnh",
-    "add custom": "Thêm tùy chỉnh",
-    "unauthorized vehicles may be ticketed towed at owner s expense": "Xe không được phép có thể bị phạt hoặc kéo đi, chủ xe chịu chi phí",
-    "city of london traffic and parking by law": "Quy định giao thông và đỗ xe của Thành phố London",
-    "social distancing": "Giữ khoảng cách",
-    "distancing": "Giữ khoảng cách",
-    "keep distance": "Giữ khoảng cách",
-    "protect yourself and others": "Bảo vệ bản thân và người khác",
-    "please stand here": "Vui lòng đứng tại đây",
-    "and others": "và người khác",
-    "others": "người khác",
     "settings": "Cài đặt",
     "airplane mode": "Chế độ máy bay",
     "dual sim and mobile network": "Dual SIM và mạng di động",
@@ -66,14 +53,6 @@ UI_ALLOWED_UNTRANSLATED_TOKENS = {
 }
 
 UI_PHRASE_TRANSLATIONS = {
-    "authorized parking only": "chỉ dành cho đỗ xe",
-    "parking only": "chỉ dành cho đỗ xe",
-    "add custom text here": "thêm nội dung tùy chỉnh",
-    "social distancing": "giữ khoảng cách",
-    "keep distance": "giữ khoảng cách",
-    "protect yourself": "bảo vệ bản thân",
-    "protect yourself and others": "bảo vệ bản thân và người khác",
-    "please stand here": "vui lòng đứng tại đây",
     "airplane mode": "chế độ máy bay",
     "do not disturb": "không làm phiền",
     "do not disturb mode": "chế độ không làm phiền",
@@ -138,7 +117,6 @@ UI_WORD_TRANSLATIONS = {
     "notification": "thông báo",
     "notifications": "thông báo",
     "other": "khác",
-    "others": "người khác",
     "passcode": "mật mã",
     "password": "mật khẩu",
     "privacy": "quyền riêng tư",
@@ -158,14 +136,6 @@ UI_WORD_TRANSLATIONS = {
     "vibration": "rung",
     "wallpaper": "hình nền",
     "wireless": "không dây",
-    "authorized": "được phép",
-    "parking": "đỗ xe",
-    "custom": "tùy chỉnh",
-    "distancing": "giữ khoảng cách",
-    "distance": "khoảng cách",
-    "protect": "bảo vệ",
-    "yourself": "bản thân",
-    "stand": "đứng",
 }
 UI_CONNECTOR_TRANSLATIONS = {"and": "và", "or": "hoặc"}
 
@@ -247,18 +217,10 @@ def _translate_ui_key_by_terms(key: str):
 
 def _glossary_translate(text: str):
     core, suffix = _split_trailing_ui_suffix(text)
-    keys = []
-    for candidate in (_normalize_ocr_text(core, contextual=True), core):
-        key = _ui_text_key(candidate)
-        if key and key not in keys:
-            keys.append(key)
-    if not keys:
+    key = _ui_text_key(core)
+    if not key:
         return None
-    translated = None
-    for key in keys:
-        translated = UI_TRANSLATION_GLOSSARY.get(key) or _translate_ui_key_by_terms(key)
-        if translated is not None:
-            break
+    translated = UI_TRANSLATION_GLOSSARY.get(key) or _translate_ui_key_by_terms(key)
     if translated is None:
         return None
     return f"{translated} {suffix}".strip() if suffix else translated
@@ -414,22 +376,13 @@ def _merge_region_group(group):
     x2 = max(float(r["box"][2]) for r in group)
     y2 = max(float(r["box"][3]) for r in group)
     line_heights = [max(1.0, float(r["box"][3]) - float(r["box"][1])) for r in group]
-    contextual = _has_ocr_normalization_context(group)
-    normalized_parts = [
-        _normalize_ocr_text(r.get("detector_text", ""), contextual=contextual)
-        for r in group
-        if str(r.get("detector_text", "")).strip()
-    ]
-    text = " ".join(part for part in normalized_parts if part)
+    text = " ".join(str(r.get("detector_text", "")).strip() for r in group if str(r.get("detector_text", "")).strip())
     return {
         "index": group[0].get("index", 0),
         "polygon": _rect_polygon((x1, y1, x2, y2)),
         "mask_polygons": [r["polygon"] for r in group],
         "source_lines": [
-            {
-                "text": _normalize_ocr_text(r.get("detector_text", ""), contextual=contextual),
-                "box": [float(v) for v in r["box"]],
-            }
+            {"text": str(r.get("detector_text", "")).strip(), "box": [float(v) for v in r["box"]]}
             for r in group
             if str(r.get("detector_text", "")).strip()
         ],
@@ -456,7 +409,6 @@ _CONTEXT_FUNCTION_WORDS = {
     "up", "down", "of", "off", "over", "under", "around", "out", "near",
     "past", "since", "within", "without", "across", "along", "beside",
     "behind", "beyond", "inside", "outside", "upon", "next",
-    "else", "either", "neither", "too", "also", "again", "not", "no", "yes",
 }
 
 _CONTEXT_PREPOSITION_PHRASES = {
@@ -465,70 +417,9 @@ _CONTEXT_PREPOSITION_PHRASES = {
     "in the morning", "in the afternoon", "in the evening", "at night",
 }
 
-_OCR_GLUE_SPLITS = {
-    "dois": "do is",
-    "itis": "it is",
-    "thatis": "that is",
-    "thisis": "this is",
-    "thereis": "there is",
-    "lifeis": "life is",
-}
-
-_OCR_PHRASE_FIXES = (
-    (re.compile(r"\bdistance\s+tace\b", re.IGNORECASE), "distance"),
-    (re.compile(r"\badd\s+custom(?:\s+text\s+here)?\b", re.IGNORECASE), "add custom text here"),
-)
-
-_OCR_DEDUPE_WORDS = {
-    *_CONTEXT_FUNCTION_WORDS,
-    "everything", "worry", "knows", "doing", "remind", "life", "good",
-}
-
 
 def _word_tokens(text):
     return re.findall(r"[A-Za-z]+", str(text or "").lower())
-
-
-def _has_ocr_normalization_context(group):
-    if len(group) <= 1:
-        return False
-    tokens = []
-    for region in group:
-        tokens.extend(_word_tokens(region.get("detector_text", "")))
-    if not tokens:
-        return False
-    token_set = set(tokens)
-    return bool(token_set & _OCR_DEDUPE_WORDS)
-
-
-def _normalize_ocr_word(token, contextual=False):
-    if not token:
-        return token
-    lower = token.lower()
-    if contextual and token == "US":
-        return "us"
-    if contextual and lower in _OCR_GLUE_SPLITS:
-        return _OCR_GLUE_SPLITS[lower]
-    if (
-        contextual
-        and len(lower) >= 4
-        and lower[0] == lower[1]
-        and lower[1:] in _OCR_DEDUPE_WORDS
-    ):
-        fixed = lower[1:]
-        return fixed.capitalize() if token[:1].isupper() else fixed
-    return token
-
-
-def _normalize_ocr_text(text, contextual=False):
-    parts = re.findall(r"[A-Za-z]+|[^A-Za-z]+", str(text or ""))
-    normalized = "".join(
-        _normalize_ocr_word(part, contextual=contextual) if part.isalpha() else part
-        for part in parts
-    ).strip()
-    for pattern, replacement in _OCR_PHRASE_FIXES:
-        normalized = pattern.sub(replacement, normalized)
-    return normalized
 
 
 def _is_ui_label_like(region, image_width):
@@ -564,12 +455,17 @@ def _uppercase_ratio(text):
 
 def _is_heading_like_fragment(region):
     text = str(region.get("detector_text", "")).strip()
-    words = _word_tokens(text)
+    words = re.findall(r"[A-Za-z]+", text)
     if not words:
         return False
     if re.search(r"[.!?;:,]$", text):
         return False
-    return _uppercase_ratio(text) >= 0.78 and len(words) <= 5 and len(text) <= 48
+    title_case_ratio = sum(1 for word in words if word[:1].isupper()) / len(words)
+    return (
+        (_uppercase_ratio(text) >= 0.78 or title_case_ratio >= 0.80)
+        and len(words) <= 5
+        and len(text) <= 48
+    )
 
 
 def _is_sentence_fragment(region, image_width):
@@ -608,147 +504,38 @@ def _same_visual_line(previous, current, image_width):
     return center_delta <= avg_h * 0.48 and overlap_ratio >= 0.42 and -avg_h * 0.35 <= horizontal_gap <= max_gap
 
 
-def _line_center(region):
-    _, y1, _, y2 = [float(v) for v in region.get("box", (0, 0, 0, 0))]
-    return (y1 + y2) / 2.0
-
-
-def _line_height(region):
-    _, y1, _, y2 = [float(v) for v in region.get("box", (0, 0, 0, 0))]
-    return max(1.0, y2 - y1)
-
-
-def _median(values):
-    values = sorted(float(value) for value in values)
-    if not values:
-        return 0.0
-    mid = len(values) // 2
-    return values[mid] if len(values) % 2 else (values[mid - 1] + values[mid]) / 2.0
-
-
-def _line_cluster_stats(row):
-    return (
-        _median(_line_center(region) for region in row),
-        max(1.0, _median(_line_height(region) for region in row)),
-    )
-
-
-def _fits_line_cluster(row, region):
-    row_center, row_h = _line_cluster_stats(row)
-    region_h = _line_height(region)
-    threshold = max(10.0, min(row_h, region_h) * 0.72)
-    return abs(_line_center(region) - row_center) <= threshold
-
-
-def _cluster_visual_rows(regions):
-    rows = []
-    for region in sorted(regions, key=lambda r: (_line_center(r), float(r["box"][0]))):
-        best_idx = None
-        best_delta = None
-        for idx, row in enumerate(rows):
-            if not _fits_line_cluster(row, region):
-                continue
-            row_center, _ = _line_cluster_stats(row)
-            delta = abs(_line_center(region) - row_center)
-            if best_delta is None or delta < best_delta:
-                best_idx = idx
-                best_delta = delta
-        if best_idx is None:
-            rows.append([region])
-        else:
-            rows[best_idx].append(region)
-    return sorted(rows, key=lambda row: min(float(region["box"][1]) for region in row))
-
-
 def _group_same_line_fragments(regions, image_width):
+    sorted_regions = sorted(regions, key=lambda r: (float(r["box"][1]), float(r["box"][0])))
     lines = []
+    current = []
 
-    for row in _cluster_visual_rows(regions):
-        current = []
+    def flush_current():
+        nonlocal current
+        if current:
+            merged = _merge_region_group(current)
+            if len(current) > 1:
+                merged = {
+                    **merged,
+                    "layout_type": "line",
+                    "line_count": 1,
+                }
+            lines.append(merged)
+            current = []
 
-        def flush_current():
-            nonlocal current
-            if current:
-                merged = _merge_region_group(current)
-                if len(current) > 1:
-                    merged = {
-                        **merged,
-                        "layout_type": "line",
-                        "line_count": 1,
-                    }
-                lines.append(merged)
-                current = []
-
-        for region in sorted(row, key=lambda r: float(r["box"][0])):
-            if not current:
-                current = [region]
-                continue
-            previous = current[-1]
-            current_ui = _is_ui_label_like(_merge_region_group(current), image_width)
-            next_ui = _is_ui_label_like(region, image_width)
-            if (not current_ui and not next_ui and _same_visual_line(previous, region, image_width)):
-                current.append(region)
-            else:
-                flush_current()
-                current = [region]
-        flush_current()
-
-    return sorted(lines, key=lambda r: (float(r["box"][1]), float(r["box"][0])))
-
-
-def _looks_like_sentence_tail(region):
-    text = str(region.get("detector_text", "")).strip()
-    words = _word_tokens(text)
-    if not words or len(words) > 3:
-        return False
-    if re.search(r"[.!?;:,]$", text):
-        return True
-    return any(word in {"else", "either", "neither", "too", "also", "again"} for word in words)
-
-
-def _combined_region_text(regions):
-    return " ".join(
-        _normalize_ocr_text(region.get("detector_text", ""), contextual=True)
-        for region in regions
-        if str(region.get("detector_text", "")).strip()
-    ).strip()
-
-
-def _can_merge_ui_phrase(current, region, image_width):
-    if not current or not _has_ui_translation_path(_combined_region_text([*current, region])):
-        return False
-    previous = current[-1]
-    px1, py1, px2, py2 = [float(v) for v in previous.get("box", (0, 0, 0, 0))]
-    cx1, cy1, cx2, cy2 = [float(v) for v in region.get("box", (0, 0, 0, 0))]
-    prev_h = max(1.0, py2 - py1)
-    curr_h = max(1.0, cy2 - cy1)
-    avg_h = (prev_h + curr_h) / 2.0
-    vertical_gap = cy1 - py2
-    left_delta = abs(cx1 - px1)
-    right_delta = abs(cx2 - px2)
-    center_delta = abs(((cx1 + cx2) / 2.0) - ((px1 + px2) / 2.0))
-    overlap = max(0.0, min(px2, cx2) - max(px1, cx1))
-    narrow_w = max(1.0, min(px2 - px1, cx2 - cx1))
-    height_ratio = min(prev_h, curr_h) / max(prev_h, curr_h)
-    horizontal_ok = (
-        left_delta <= max(52.0, image_width * 0.08)
-        or center_delta <= max(58.0, image_width * 0.10)
-        or overlap / narrow_w >= 0.34
-        or right_delta <= max(72.0, image_width * 0.11)
-    )
-    return (
-        height_ratio >= 0.42
-        and -avg_h * 0.35 <= vertical_gap <= max(34.0, avg_h * 2.0)
-        and horizontal_ok
-    )
-
-
-def _can_start_ui_phrase(region):
-    key = _ui_text_key(_normalize_ocr_text(region.get("detector_text", ""), contextual=True))
-    if not key:
-        return False
-    prefix = f"{key} "
-    return any(phrase.startswith(prefix) for phrase in (*UI_TRANSLATION_GLOSSARY, *UI_PHRASE_TRANSLATIONS))
+    for region in sorted_regions:
+        if not current:
+            current = [region]
+            continue
+        previous = current[-1]
+        current_ui = _is_ui_label_like(_merge_region_group(current), image_width)
+        next_ui = _is_ui_label_like(region, image_width)
+        if (not current_ui and not next_ui and _same_visual_line(previous, region, image_width)):
+            current.append(region)
+        else:
+            flush_current()
+            current = [region]
+    flush_current()
+    return lines
 
 
 def _is_body_text_line(region, image_width):
@@ -756,12 +543,11 @@ def _is_body_text_line(region, image_width):
     x1, _, x2, _ = [float(v) for v in region.get("box", (0, 0, 0, 0))]
     box_w = max(1.0, x2 - x1)
     word_count = len(re.findall(r"[A-Za-z]+", text))
-    return (
+    return not _is_heading_like_fragment(region) and (
         word_count >= 5
         or len(text) >= 34
         or box_w >= image_width * 0.32
         or _is_sentence_fragment(region, image_width)
-        or _looks_like_sentence_tail(region)
     )
 
 
@@ -812,11 +598,9 @@ def _group_paragraph_regions(regions, image_width):
         is_contextual = _is_contextual_fragment(region)
         can_be_context_group = (
             not _is_ui_label_like(region, image_width)
-            and (_is_body_text_line(region, image_width) or is_contextual or _can_start_ui_phrase(region))
+            and not _is_heading_like_fragment(region)
+            and (_is_body_text_line(region, image_width) or is_contextual)
         )
-        if _can_merge_ui_phrase(current, region, image_width):
-            current.append(region)
-            continue
         if not can_be_context_group:
             flush_current()
             grouped.append(_merge_region_group([region]))

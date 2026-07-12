@@ -3,7 +3,6 @@
 
 # ─── Node / npm ───────────────────────────────────────────────────────────────
 node_modules/
-package-lock.json
 
 # ─── Python ───────────────────────────────────────────────────────────────────
 __pycache__/
@@ -15,12 +14,15 @@ venv/
 
 # ─── Môi trường & secrets ─────────────────────────────────────────────────────
 .env
-.env.local
-.env.*.local
+.env.*
+!.env.example
+BE-Models/server/env
+*.log
 
 # ─── Build outputs ────────────────────────────────────────────────────────────
 dist/
 build/
+Report/
 
 # Codex temporary extraction folders
 .codex-tmp-*/
@@ -36,6 +38,7 @@ build/
 .npm/
 .zsh_history
 .zsh_sessions/
+.lesshst
 .node_repl_history
 .python_history
 .oracle_jre_usage/

@@ -1,6 +1,8 @@
 import React, { useRef, useState } from 'react';
 import { ImageIcon } from 'lucide-react';
 import { useStudioStore } from '../../../stores/useStudioStore';
+import { toast } from '../../../stores/useToastStore';
+import { validateImageFile } from '../../../api';
 
 export const UploadZone: React.FC = () => {
   const { addFiles } = useStudioStore();
@@ -9,7 +11,16 @@ export const UploadZone: React.FC = () => {
 
   const handleFiles = (files: FileList | null) => {
     if (!files || files.length === 0) return;
-    addFiles(Array.from(files));
+    const incoming = Array.from(files);
+    const accepted = incoming.filter((file) => validateImageFile(file) === null);
+    const rejectedCount = incoming.length - accepted.length;
+
+    if (rejectedCount > 0) {
+      toast.error(`${rejectedCount} file(s) skipped. Use JPG, PNG, or WebP under 10MB.`);
+    }
+    if (accepted.length > 0) {
+      addFiles(accepted);
+    }
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -57,7 +68,7 @@ export const UploadZone: React.FC = () => {
         ref={fileInputRef}
         type="file"
         multiple
-        accept="image/*"
+        accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp"
         onChange={handleFileChange}
         style={{ display: 'none' }}
       />

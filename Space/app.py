@@ -24,6 +24,8 @@ os.environ.setdefault("NLLB_MODEL_PATH", os.getenv("NLLB_MODEL_PATH", "masterdzz
 os.environ.setdefault("NLLB_SRC_LANG",   "eng_Latn")
 os.environ.setdefault("NLLB_TGT_LANG",   "vie_Latn")
 os.environ.setdefault("OCR_MIN_CONFIDENCE", "0.5")
+SPACE_CONCURRENCY = max(1, int(os.getenv("VIETRANS_SPACE_CONCURRENCY", "3")))
+SPACE_QUEUE_MAX_SIZE = max(1, int(os.getenv("VIETRANS_SPACE_QUEUE_MAX_SIZE", "32")))
 
 # --- Disable PaddlePaddle PIR & oneDNN to prevent ConvertPirAttribute2RuntimeAttribute crash ---
 os.environ["FLAGS_use_mkldnn"] = "0"
@@ -146,12 +148,12 @@ def _format_qa_suffix(report: dict) -> str:
 def translate_image(input_image):
     """
     Nhận PIL.Image đầu vào → chạy pipeline → trả về:
-      (fuse_img, text_en_img, text_vi_img, back_img, original_img, ocr_text, translated_text)
+      (fuse_img, text_en_img, text_vi_img, back_img, original_img, ocr_text, translated_text, debug_payload)
     """
     from PIL import Image as PILImage
 
     if input_image is None:
-        return None, None, None, None, None, "", "⚠️ Vui lòng tải ảnh lên trước."
+        return None, None, None, None, None, "", "Please upload an image first.", {}
 
     # Tạo thư mục output riêng cho mỗi request
     uid     = str(uuid.uuid4())
@@ -173,7 +175,7 @@ def translate_image(input_image):
     except Exception as e:
         import traceback
         traceback.print_exc()
-        return None, None, None, None, None, "", f"❌ Lỗi pipeline: {e}"
+        return None, None, None, None, None, "", f"Pipeline error: {e}", {"error": str(e)}
 
     # Đọc các ảnh kết quả
     def _load(name):
@@ -187,11 +189,12 @@ def translate_image(input_image):
     original_img = _load("input.jpg")
     ocr_text = _read_text_file(os.path.join(out_dir, "ocr.txt"))
     qa_report = _read_json_file(os.path.join(out_dir, "qa.json"))
+    debug_payload = _read_json_file(os.path.join(out_dir, "debug", "09_pipeline_debug.json"))
 
     result_label = f"✅ Dịch thành công!\n\n{translated_text}" if translated_text else "⚠️ Không phát hiện chữ tiếng Anh trong ảnh."
     result_label += _format_qa_suffix(qa_report)
 
-    return fuse_img, text_en_img, text_vi_img, back_img, original_img, ocr_text, result_label
+    return fuse_img, text_en_img, text_vi_img, back_img, original_img, ocr_text, result_label, debug_payload
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -365,6 +368,7 @@ with gr.Blocks(css=_CSS, theme=gr.themes.Soft(), title="VieTrans — In-Image Tr
                 interactive=False,
                 show_copy_button=True,
             )
+            debug_json = gr.JSON(label="Debug payload", visible=False)
 
     # ── Bước trung gian (Accordion) ───────────────────────────────────────────
     with gr.Accordion("🔬 Các bước xử lý trung gian", open=False):
@@ -412,17 +416,21 @@ with gr.Blocks(css=_CSS, theme=gr.themes.Soft(), title="VieTrans — In-Image Tr
         inputs=[input_img],
         outputs=[output_fuse, output_text_en, output_text_vi, output_back, output_original, ocr_text, translated_text],
         api_name="translate_stream",
+        concurrency_limit=SPACE_CONCURRENCY,
     )
 
     # Batch (full pipeline, backward-compatible)
     btn_translate.click(
         fn=translate_image,
         inputs=[input_img],
-        outputs=[output_fuse, output_text_en, output_text_vi, output_back, output_original, ocr_text, translated_text],
+        outputs=[output_fuse, output_text_en, output_text_vi, output_back, output_original, ocr_text, translated_text, debug_json],
         api_name="translate",
+        concurrency_limit=SPACE_CONCURRENCY,
     )
 
 
 # ─── Launch ────────────────────────────────────────────────────────────────────
+demo.queue(default_concurrency_limit=SPACE_CONCURRENCY, max_size=SPACE_QUEUE_MAX_SIZE)
+
 if __name__ == "__main__":
     demo.launch(server_name="0.0.0.0", server_port=7860)

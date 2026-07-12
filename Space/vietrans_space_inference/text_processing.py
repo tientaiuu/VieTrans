@@ -455,12 +455,17 @@ def _uppercase_ratio(text):
 
 def _is_heading_like_fragment(region):
     text = str(region.get("detector_text", "")).strip()
-    words = _word_tokens(text)
+    words = re.findall(r"[A-Za-z]+", text)
     if not words:
         return False
     if re.search(r"[.!?;:,]$", text):
         return False
-    return _uppercase_ratio(text) >= 0.78 and len(words) <= 5 and len(text) <= 48
+    title_case_ratio = sum(1 for word in words if word[:1].isupper()) / len(words)
+    return (
+        (_uppercase_ratio(text) >= 0.78 or title_case_ratio >= 0.80)
+        and len(words) <= 5
+        and len(text) <= 48
+    )
 
 
 def _is_sentence_fragment(region, image_width):
@@ -538,7 +543,7 @@ def _is_body_text_line(region, image_width):
     x1, _, x2, _ = [float(v) for v in region.get("box", (0, 0, 0, 0))]
     box_w = max(1.0, x2 - x1)
     word_count = len(re.findall(r"[A-Za-z]+", text))
-    return (
+    return not _is_heading_like_fragment(region) and (
         word_count >= 5
         or len(text) >= 34
         or box_w >= image_width * 0.32
@@ -593,6 +598,7 @@ def _group_paragraph_regions(regions, image_width):
         is_contextual = _is_contextual_fragment(region)
         can_be_context_group = (
             not _is_ui_label_like(region, image_width)
+            and not _is_heading_like_fragment(region)
             and (_is_body_text_line(region, image_width) or is_contextual)
         )
         if not can_be_context_group:

@@ -120,7 +120,7 @@ def _fit_paragraph_font_and_wrap(draw, text, box_width, box_height, font_path,
     max_text_w = max(1, box_width - 2 * h_pad)
     max_text_h = max(1, box_height - 2 * v_pad)
     best = None
-    target_fill = min(0.78, max(0.62, 0.54 + min(float(line_spacing or 1.18), 2.4) * 0.08))
+    target_fill = min(0.92, max(0.82, 0.72 + min(float(line_spacing or 1.18), 2.6) * 0.08))
     for size in range(max_size, min_size - 1, -1):
         font = _load_font(font_path, size, bold=bold, italic=italic, condensed=condensed)
         lines = _wrap_text(draw, text, font, max_text_w)
@@ -130,7 +130,7 @@ def _fit_paragraph_font_and_wrap(draw, text, box_width, box_height, font_path,
             widest = max((_text_size(draw, line, font)[0] for line in lines), default=0)
             if widest <= max_text_w and total_h <= max_text_h:
                 fill_ratio = total_h / max_text_h
-                score = -abs(fill_ratio - target_fill) + (size * 0.0015) - abs(spacing - float(line_spacing or 1.18)) * 0.035
+                score = -abs(fill_ratio - target_fill) + (size * 0.003) - abs(spacing - float(line_spacing or 1.18)) * 0.035
                 if best is None or score > best[0]:
                     best = (score, font, lines, line_h, spacing)
     if best is not None:

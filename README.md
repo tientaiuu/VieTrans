@@ -80,7 +80,7 @@ source venv/bin/activate  # On Windows: venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-Create an environmental configuration file at `BE-Models/server/env` or configure your system environment variables:
+Create a local environment file at `BE-Models/server/.env` or configure your system environment variables. Do not commit this file:
 
 ```ini
 MONGO_URI=mongodb://localhost:27017

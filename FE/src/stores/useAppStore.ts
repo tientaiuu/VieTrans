@@ -21,7 +21,7 @@ interface AppState {
   setActivePage: (page: string) => void;
   openAuth: () => void;
   closeAuth: () => void;
-  login: (fullName: string, email: string, token?: string) => void;
+  login: (fullName: string, email: string, token?: string, avatar?: string | null) => void;
   updateProfile: (profile: { fullName: string; username: string }) => void;
   setUserAvatar: (avatar: string | null) => void;
   updateSettings: (settings: {
@@ -53,12 +53,13 @@ export const useAppStore = create<AppState>()(
       setActivePage: (page) => set({ activePage: page }),
       openAuth: () => set({ authOpen: true }),
       closeAuth: () => set({ authOpen: false }),
-      login: (fullName: string, email: string, token?: string) =>
+      login: (fullName: string, email: string, token?: string, avatar?: string | null) =>
         set({
           isLoggedIn: true,
           userFullName: fullName,
           userEmail: email,
           userUsername: email.split('@')[0] || 'user',
+          userAvatar: avatar || null,
           token: token || null,
         }),
       updateProfile: ({ fullName, username }) =>

@@ -157,7 +157,7 @@ export const HomePage: React.FC = () => {
           checkHealth(), getPipelineInfo(),
         ]);
         if (gone) return;
-        let s = { ...DEFAULT_STATS };
+        const s = { ...DEFAULT_STATS };
         if (health.status === 'fulfilled') {
           const tot = health.value.total_samples;
           if (tot > 0) { s.totalSamples = tot; s.tokensProcessed = `${Math.round(tot * 4.1 / 1_000_000)}M+`; s.activeUsers = tot > 5000 ? `${Math.round(tot/900)}k` : `${tot}`; }

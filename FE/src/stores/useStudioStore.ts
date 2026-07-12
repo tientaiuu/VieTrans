@@ -1,13 +1,23 @@
 import { create } from 'zustand';
-import { uploadImage, type UploadResult } from '../api';
+import {
+  createUploadJob,
+  waitForUploadJob,
+  type UploadJobResponse,
+  type UploadResult,
+} from '../api';
 import { useAppStore } from './useAppStore';
+
+export type QueueItemStatus = 'idle' | 'uploading' | 'queued' | 'running' | 'done' | 'error';
+
+const MAX_ACTIVE_UPLOAD_JOBS = 3;
 
 export type QueueItem = {
   id: string;
   file: File;
   previewUrl: string;
-  status: 'idle' | 'uploading' | 'done' | 'error';
+  status: QueueItemStatus;
   progress: number;
+  jobId: string | null;
   result: UploadResult | null;
   error: string | null;
   editedImage: string | null;
@@ -38,6 +48,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       previewUrl: URL.createObjectURL(file),
       status: 'idle',
       progress: 0,
+      jobId: null,
       result: null,
       error: null,
       editedImage: null,
@@ -73,18 +84,29 @@ export const useStudioStore = create<StudioState>((set, get) => ({
 
   processAll: async () => {
     const { queue } = get();
+    if (get().isProcessingAll) return;
+
     const idleItems = queue.filter((q) => q.status === 'idle');
     if (idleItems.length === 0) return;
 
+    const appState = useAppStore.getState();
+    if (!appState.token) {
+      appState.openAuth();
+      set({ activeId: get().activeId ?? idleItems[0].id });
+      return;
+    }
+
     set({ isProcessingAll: true });
 
-    for (const item of idleItems) {
+    const processItem = async (item: QueueItem) => {
       const currentItem = get().queue.find((q) => q.id === item.id);
-      if (!currentItem || currentItem.status !== 'idle') continue;
+      if (!currentItem || currentItem.status !== 'idle') return;
 
       set((state) => ({
         queue: state.queue.map((q) =>
-          q.id === item.id ? { ...q, status: 'uploading', progress: 5 } : q
+          q.id === item.id
+            ? { ...q, status: 'uploading', progress: 5, jobId: null, result: null, error: null }
+            : q
         ),
         activeId: state.activeId ?? item.id,
       }));
@@ -131,9 +153,25 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       advanceProgress();
 
       const token = useAppStore.getState().token ?? undefined;
+      const syncJobStatus = (job: UploadJobResponse) => {
+        if (job.status === 'queued') {
+          currentProgress = Math.max(currentProgress, 12);
+          updateItem({ jobId: job.job_id, status: 'queued', progress: Math.round(currentProgress) });
+        } else if (job.status === 'running') {
+          currentProgress = Math.max(currentProgress, 35);
+          updateItem({ jobId: job.job_id, status: 'running', progress: Math.round(currentProgress) });
+        } else if (job.status === 'succeeded') {
+          currentProgress = Math.max(currentProgress, 96);
+          updateItem({ jobId: job.job_id, progress: Math.round(currentProgress) });
+        } else if (job.status === 'failed') {
+          updateItem({ jobId: job.job_id, status: 'error', error: job.error || 'Upload failed' });
+        }
+      };
 
       try {
-        const result = await uploadImage(item.file, token);
+        const job = await createUploadJob(item.file, token);
+        syncJobStatus(job);
+        const result = await waitForUploadJob(job, token, syncJobStatus);
         clearTimers();
         updateItem({ progress: 100 });
         await new Promise((r) => setTimeout(r, 600));
@@ -146,7 +184,21 @@ export const useStudioStore = create<StudioState>((set, get) => ({
           progress: 0,
         });
       }
-    }
+    };
+
+    let nextIndex = 0;
+    const workers = Array.from(
+      { length: Math.min(MAX_ACTIVE_UPLOAD_JOBS, idleItems.length) },
+      async () => {
+        while (nextIndex < idleItems.length) {
+          const item = idleItems[nextIndex];
+          nextIndex += 1;
+          await processItem(item);
+        }
+      }
+    );
+
+    await Promise.all(workers);
 
     set({ isProcessingAll: false });
   },

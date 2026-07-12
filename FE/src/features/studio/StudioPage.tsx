@@ -1,10 +1,12 @@
 import React from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import {
   Download, X, Layers, RefreshCw, Trash2, Copy, Check,
   Sparkles, ScanLine, Languages, Blend, ImageIcon, Play,
   PanelLeft, Eye, Paintbrush, Image, GitFork, Split, Braces,
 } from 'lucide-react';
 import { useStudioStore } from '../../stores/useStudioStore';
+import { useAppStore } from '../../stores/useAppStore';
 import { UploadZone } from './components/UploadZone';
 import { ComparisonSlider } from './components/ComparisonSlider';
 import { CanvasEditor } from './components/CanvasEditor';
@@ -74,7 +76,27 @@ const Spinner: React.FC<{ size?: number; color?: string }> = ({ size = 14, color
   }} />
 );
 
+const isProcessingStatus = (status?: string | null) =>
+  status === 'uploading' || status === 'queued' || status === 'running';
+
+const statusColor = (status: string) =>
+  status === 'done' ? '#22c55e'
+    : status === 'error' ? '#ef4444'
+    : isProcessingStatus(status) ? 'var(--blue)'
+    : 'var(--ink4)';
+
+const statusLabel = (status: string, progress: number, error?: string | null) => {
+  if (status === 'idle') return 'Idle';
+  if (status === 'uploading') return `Uploading ${progress}%`;
+  if (status === 'queued') return `Queued ${progress}%`;
+  if (status === 'running') return `Running ${progress}%`;
+  if (status === 'done') return 'Done';
+  return error || 'Error';
+};
+
 export const StudioPage: React.FC = () => {
+  const navigate = useNavigate();
+  const location = useLocation();
   const {
     queue,
     activeId,
@@ -84,6 +106,7 @@ export const StudioPage: React.FC = () => {
     setEditedImage,
     processAll,
   } = useStudioStore();
+  const authToken = useAppStore((state) => state.token);
 
   const activeItem = queue.find((q) => q.id === activeId) ?? null;
 
@@ -187,12 +210,36 @@ export const StudioPage: React.FC = () => {
 
   const idleCount = queue.filter((q) => q.status === 'idle').length;
   const canTranslateAll = idleCount > 0 && !isProcessingAll;
+  const translateAllLabel = authToken
+    ? `Translate All ${idleCount > 0 ? `(${idleCount})` : ''}`
+    : 'Sign in to Translate';
   const hasImageText = !!activeItem?.result;
   const copyImageTextLabel = copiedText
     ? 'Text Copied!'
     : copyTextFailed
       ? 'No Text'
       : 'Copy Image Text';
+
+  const handleTranslateAll = () => {
+    if (!authToken) {
+      navigate('/login', {
+        state: { from: `${location.pathname}${location.search}${location.hash}` },
+      });
+      return;
+    }
+    void processAll();
+  };
+
+  const handleMobileTranslateAll = () => {
+    if (!authToken) {
+      navigate('/login', {
+        state: { from: `${location.pathname}${location.search}${location.hash}` },
+      });
+      return;
+    }
+    void processAll();
+    setMobilePane('editor');
+  };
 
   return (
     <div style={{
@@ -370,7 +417,7 @@ export const StudioPage: React.FC = () => {
                             background: 'var(--ink4)', flexShrink: 0,
                           }} />
                         )}
-                        {item.status === 'uploading' && (
+                        {isProcessingStatus(item.status) && (
                           <Spinner size={12} color="var(--blue)" />
                         )}
                         {item.status === 'done' && (
@@ -381,16 +428,10 @@ export const StudioPage: React.FC = () => {
                         )}
                         <span style={{
                           fontSize: '11px',
-                          color: item.status === 'done' ? '#22c55e'
-                            : item.status === 'error' ? '#ef4444'
-                            : item.status === 'uploading' ? 'var(--blue)'
-                            : 'var(--ink4)',
+                          color: statusColor(item.status),
                           fontFamily: 'var(--mono)',
                         }}>
-                          {item.status === 'idle' ? 'Idle'
-                            : item.status === 'uploading' ? `${item.progress}%`
-                            : item.status === 'done' ? 'Done'
-                            : item.error || 'Error'}
+                          {statusLabel(item.status, item.progress, item.error)}
                         </span>
                       </div>
                     </div>
@@ -427,8 +468,9 @@ export const StudioPage: React.FC = () => {
           {/* Translate All button */}
           <div style={{ padding: '10px 12px', borderTop: '1px solid var(--ln)' }}>
             <button
-              onClick={processAll}
+              onClick={handleTranslateAll}
               disabled={!canTranslateAll}
+              title={!authToken ? 'Sign in to translate images' : undefined}
               style={{
                 width: '100%',
                 padding: '10px 16px',
@@ -453,7 +495,7 @@ export const StudioPage: React.FC = () => {
               ) : (
                 <>
                   <Play size={13} style={{ strokeWidth: 2.5 }} />
-                  Translate All {idleCount > 0 ? `(${idleCount})` : ''}
+                  {translateAllLabel}
                 </>
               )}
             </button>
@@ -501,7 +543,7 @@ export const StudioPage: React.FC = () => {
             )}
 
             {/* Uploading state — Pipeline Canvas Visualization */}
-            {activeItem?.status === 'uploading' && (
+            {isProcessingStatus(activeItem?.status) && (
               <div style={{ flex: 1, overflow: 'auto', padding: '16px 20px' }}>
                 <PipelineCanvas
                   isProcessing={true}
@@ -614,7 +656,12 @@ export const StudioPage: React.FC = () => {
                     onSave={async (imgData) => {
                       setEditedImage(activeItem.id, imgData);
                       try {
-                        await updateFuseImage(String(activeItem.result!.matched_id), imgData);
+                        await updateFuseImage(
+                          String(activeItem.result!.matched_id),
+                          imgData,
+                          authToken,
+                          activeItem.result!.edit_token
+                        );
                       } catch (e) {
                         console.error('Failed to update image', e);
                       }
@@ -929,8 +976,9 @@ export const StudioPage: React.FC = () => {
       {isMobile && mobilePane === 'queue' && (
         <div style={{ flexShrink: 0, padding: '10px 12px', background: 'var(--paper)', borderTop: '1px solid var(--ln)' }}>
           <button
-            onClick={() => { processAll(); setMobilePane('editor'); }}
+            onClick={handleMobileTranslateAll}
             disabled={!canTranslateAll}
+            title={!authToken ? 'Sign in to translate images' : undefined}
             style={{
               width: '100%', padding: '11px 16px', borderRadius: '10px', border: 'none',
               display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '7px',
@@ -942,7 +990,7 @@ export const StudioPage: React.FC = () => {
               cursor: canTranslateAll ? 'pointer' : 'not-allowed',
             }}
           >
-            {isProcessingAll ? <><Spinner size={13} color="#fff" /> Translating…</> : <><Play size={13} /> Translate All {idleCount > 0 ? `(${idleCount})` : ''}</>}
+            {isProcessingAll ? <><Spinner size={13} color="#fff" /> Translating…</> : <><Play size={13} /> {translateAllLabel}</>}
           </button>
         </div>
       )}

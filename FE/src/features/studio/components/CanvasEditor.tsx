@@ -441,13 +441,15 @@ export const CanvasEditor: React.FC<CanvasEditorProps> = ({ imageUrl, onSave }) 
     setIsDirty(true);
     
     redraw();
-  }, [tool, brushColor, brushSize, getPos, selectedTextId, redraw]);
+  }, [tool, brushColor, brushSize, getPos, selectedTextId, addedTexts, redraw]);
 
   const endDraw = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
     if (isPanningRef.current && canvasRef.current) {
       try {
         (e.target as HTMLCanvasElement).releasePointerCapture(e.pointerId);
-      } catch (err) {}
+      } catch {
+        // Pointer capture may already be released by the browser.
+      }
     }
     isDrawing.current = false;
     isPanningRef.current = false;

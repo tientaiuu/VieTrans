@@ -35,6 +35,7 @@ function App() {
           <Route path="signup" element={<AuthPage />} />
           <Route path="reset-password" element={<ResetPasswordPage />} />
           <Route path="account" element={<AccountPage />} />
+          <Route path="account/pricing" element={<PricingPage />} />
           <Route path="account/activity-history" element={<ActivityHistoryPage />} />
           <Route path="account/settings" element={<SettingsPage />} />
           <Route path="account/information" element={<InformationPage />} />

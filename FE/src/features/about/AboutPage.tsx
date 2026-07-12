@@ -2,12 +2,6 @@ import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Bot, Boxes, Cpu, Globe2, Github, Layers3, ExternalLink } from 'lucide-react';
 
-export const TEAM = [
-  { name: 'VieTrans Research', role: 'Core AI & Model Architecture', avatar: '🧠' },
-  { name: 'Frontend Studio', role: 'UI/UX & Product Design', avatar: '🎨' },
-  { name: 'Infrastructure', role: 'Backend & Deployment', avatar: '⚡' },
-];
-
 const TECH = [
   { icon: <Bot size={18} />, name: 'PyTorch', desc: 'Neural network inference' },
   { icon: <Cpu size={18} />, name: 'FastAPI', desc: 'High-performance REST API' },
@@ -121,7 +115,7 @@ export const AboutPage: React.FC = () => {
                 { step: '02', icon: <Boxes size={16} />, title: 'Visual Layout blocks Quantization', desc: 'Mã hóa đặc trưng ảnh văn bản thành discrete codes để bridge visual-textual gap.' },
                 { step: '03', icon: <Cpu size={16} />, title: 'Neural Code Translation', desc: 'NLLB translator dịch source codes → target codes (EN→VI) mà không cần OCR.' },
                 { step: '04', icon: <Bot size={16} />, title: 'Text-Background Fusion', desc: 'Render planner compositing lớp văn bản VI đã dịch lên nền gốc.' },
-              ].map((item, _i) => (
+              ].map((item) => (
                 <div
                   key={item.step}
                   style={{

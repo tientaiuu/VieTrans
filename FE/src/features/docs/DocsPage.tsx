@@ -6,8 +6,10 @@ import {
   ArrowRight, Zap, Lock, Activity, Package, LifeBuoy,
   ChevronDown, Globe, Code2,
 } from 'lucide-react';
+import { generateApiKey, getApiKeyInfo, type ApiKeyInfo } from '../../api';
+import { useAppStore } from '../../stores/useAppStore';
 
-// ── Google Fonts loader ──────────────────────────────────────────────────────
+// â”€â”€ Google Fonts loader â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Syne (display), Lora (body serif), JetBrains Mono (code)
 const FontLoader = () => (
   <style>{`
@@ -15,10 +17,10 @@ const FontLoader = () => (
   `}</style>
 );
 
-// ── Scoped CSS for docs — uses app CSS variables (--bg, --ink, --gold, etc.) ─
+// â”€â”€ Scoped CSS for docs â€” uses app CSS variables (--bg, --ink, --gold, etc.) â”€
 const DocsCSS = () => (
   <style>{`
-    /* ── Docs fonts override (scoped to .docs-root) ── */
+    /* â”€â”€ Docs fonts override (scoped to .docs-root) â”€â”€ */
     .docs-root {
       font-family: 'Lora', Georgia, serif;
     }
@@ -51,7 +53,7 @@ const DocsCSS = () => (
       50%       { opacity: 1; }
     }
 
-    /* Code scanline (subtle — darkened in light mode via opacity) */
+    /* Code scanline (subtle â€” darkened in light mode via opacity) */
     @keyframes docs-scanline {
       0%   { transform: translateY(-100%); }
       100% { transform: translateY(400%); }
@@ -78,7 +80,7 @@ const DocsCSS = () => (
     .docs-param-row { transition: background 0.15s; }
     .docs-param-row:hover td { background: var(--blueG) !important; }
 
-    /* Method badges — use app theme vars defined in index.css */
+    /* Method badges â€” use app theme vars defined in index.css */
     .docs-badge-post {
       background: var(--docs-method-post-bg);
       color:      var(--docs-method-post-clr);
@@ -103,7 +105,7 @@ const DocsCSS = () => (
       border-top: 1px solid var(--docs-border);
     }
 
-    /* Code block border — gold-tinted in dark, subtle in light */
+    /* Code block border â€” gold-tinted in dark, subtle in light */
     .docs-code-block {
       background: var(--docs-code-bg);
       border: 1px solid color-mix(in srgb, var(--blue) 20%, var(--docs-border) 80%);
@@ -277,7 +279,7 @@ const DocsCSS = () => (
   `}</style>
 );
 
-// ─── Types ───────────────────────────────────────────────────────────────────
+// â”€â”€â”€ Types â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 type LangTab = 'curl' | 'js' | 'python' | 'php';
 
 interface NavItem {
@@ -292,7 +294,7 @@ interface NavGroup {
   items: NavItem[];
 }
 
-// ─── Navigation Data ─────────────────────────────────────────────────────────
+// â”€â”€â”€ Navigation Data â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const navGroups: NavGroup[] = [
   {
     title: 'Introduction',
@@ -310,7 +312,7 @@ const navGroups: NavGroup[] = [
     title: 'API Reference',
     items: [
       { id: 'upload', label: 'Process Image', method: 'POST' as const },
-      { id: 'inpainting', label: 'Erase & Inpaint', method: 'POST' as const },
+      { id: 'background-stage', label: 'Background Stage', method: 'GET' as const },
       { id: 'history', label: 'Get History', method: 'GET' as const },
     ],
   },
@@ -326,63 +328,116 @@ const navGroups: NavGroup[] = [
 
 const allItems = navGroups.flatMap((g) => g.items);
 
-// ─── Code Snippets ────────────────────────────────────────────────────────────
-const getUploadCode = (): Record<LangTab, string> => ({
+// â”€â”€â”€ Code Snippets â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+const API_KEY_PLACEHOLDER = 'vt_addxxxxxx';
+
+const getUploadCode = (apiKey: string): Record<LangTab, string> => ({
   curl: `curl -X POST https://masterdzzzz-vietrans-backend.hf.space/api/upload \\
-  -H "Authorization: Bearer YOUR_JWT_TOKEN" \\
-  -F "file=@/path/to/image.png"`,
+  -H "X-API-Key: ${apiKey}" \\
+  -F "file=@/path/to/image.png"
+
+# Then poll the returned poll_url until status is succeeded.
+curl "https://masterdzzzz-vietrans-backend.hf.space/api/jobs/YOUR_JOB_ID" \\
+  -H "X-API-Key: ${apiKey}"`,
   js: `const form = new FormData();
 form.append('file', fileInput.files[0]);
 
-const res = await fetch('https://masterdzzzz-vietrans-backend.hf.space/api/upload', {
+const API_BASE = 'https://masterdzzzz-vietrans-backend.hf.space';
+const res = await fetch(API_BASE + '/api/upload', {
   method: 'POST',
-  headers: { 'Authorization': 'Bearer YOUR_JWT_TOKEN' },
+  headers: { 'X-API-Key': '${apiKey}' },
   body: form,
 });
+if (!res.ok) throw new Error(await res.text());
 
-const data = await res.json();
-console.log(data.stages.fuse);`,
-  python: `import requests
+let job = await res.json();
+while (job.status !== 'succeeded') {
+  if (job.status === 'failed') throw new Error(job.error || 'Upload failed');
+  await new Promise((resolve) => setTimeout(resolve, 1500));
+  const poll = await fetch(API_BASE + job.poll_url, {
+    headers: { 'X-API-Key': '${apiKey}' },
+  });
+  if (!poll.ok) throw new Error(await poll.text());
+  job = await poll.json();
+}
+
+console.log(job.result.stages.fuse);`,
+  python: `import time
+import requests
+
+API_BASE = "https://masterdzzzz-vietrans-backend.hf.space"
 
 resp = requests.post(
-    "https://masterdzzzz-vietrans-backend.hf.space/api/upload",
-    headers={"Authorization": "Bearer YOUR_JWT_TOKEN"},
+    API_BASE + "/api/upload",
+    headers={"X-API-Key": "${apiKey}"},
     files={"file": open("image.png", "rb")},
 )
-print(resp.json())`,
+resp.raise_for_status()
+job = resp.json()
+
+while job["status"] != "succeeded":
+    if job["status"] == "failed":
+        raise RuntimeError(job.get("error", "Upload failed"))
+    time.sleep(1.5)
+    poll = requests.get(
+        API_BASE + job["poll_url"],
+        headers={"X-API-Key": "${apiKey}"},
+    )
+    poll.raise_for_status()
+    job = poll.json()
+
+print(job["result"]["stages"]["fuse"])`,
   php: `<?php
-$curl = curl_init('https://masterdzzzz-vietrans-backend.hf.space/api/upload');
+$apiBase = 'https://masterdzzzz-vietrans-backend.hf.space';
+$curl = curl_init($apiBase . '/api/upload');
 curl_setopt_array($curl, [
   CURLOPT_RETURNTRANSFER => true,
   CURLOPT_POST => true,
-  CURLOPT_HTTPHEADER => ['Authorization: Bearer YOUR_JWT_TOKEN'],
+  CURLOPT_HTTPHEADER => ['X-API-Key: ${apiKey}'],
   CURLOPT_POSTFIELDS => [
     'file' => new CURLFile('/path/to/image.png'),
   ],
 ]);
-echo curl_exec($curl);`,
+$job = json_decode(curl_exec($curl), true);
+curl_close($curl);
+
+while ($job['status'] !== 'succeeded') {
+  if ($job['status'] === 'failed') {
+    throw new Exception($job['error'] ?? 'Upload failed');
+  }
+  sleep(2);
+  $poll = curl_init($apiBase . $job['poll_url']);
+  curl_setopt_array($poll, [
+    CURLOPT_RETURNTRANSFER => true,
+    CURLOPT_HTTPHEADER => ['X-API-Key: ${apiKey}'],
+  ]);
+  $job = json_decode(curl_exec($poll), true);
+  curl_close($poll);
+}
+
+echo $job['result']['stages']['fuse'];`,
 });
 
-const getHistoryCode = (): Record<LangTab, string> => ({
+const getHistoryCode = (apiKey: string): Record<LangTab, string> => ({
   curl: `curl "https://masterdzzzz-vietrans-backend.hf.space/api/history" \\
-  -H "Authorization: Bearer YOUR_JWT_TOKEN"`,
+  -H "X-API-Key: ${apiKey}"`,
   js: `const res = await fetch(
   'https://masterdzzzz-vietrans-backend.hf.space/api/history',
-  { headers: { 'Authorization': 'Bearer YOUR_JWT_TOKEN' } }
+  { headers: { 'X-API-Key': '${apiKey}' } }
 );
 const histories = await res.json();`,
   python: `resp = requests.get(
     "https://masterdzzzz-vietrans-backend.hf.space/api/history",
-    headers={"Authorization": "Bearer YOUR_JWT_TOKEN"},
+    headers={"X-API-Key": "${apiKey}"},
 )`,
   php: `<?php
 $url = 'https://masterdzzzz-vietrans-backend.hf.space/api/history';
 $curl = curl_init($url);
-curl_setopt($curl, CURLOPT_HTTPHEADER, ['Authorization: Bearer YOUR_JWT_TOKEN']);
+curl_setopt($curl, CURLOPT_HTTPHEADER, ['X-API-Key: ${apiKey}']);
 echo curl_exec($curl);`,
 });
 
-// ─── Syntax Highlight (theme-aware colors via inline) ────────────────────────
+// â”€â”€â”€ Syntax Highlight (theme-aware colors via inline) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // String/number tokens use relative opacity so they look ok on both themes
 const SyntaxHighlight: React.FC<{ code: string }> = ({ code }) => {
   // Split the code using a regex that captures all token types.
@@ -423,7 +478,7 @@ const SyntaxHighlight: React.FC<{ code: string }> = ({ code }) => {
   return <code>{elements}</code>;
 };
 
-// Syntax highlight CSS — strings/keys = blue accent, funcs = blue2, keywords = muted red
+// Syntax highlight CSS â€” strings/keys = blue accent, funcs = blue2, keywords = muted red
 const SyntaxCSS = () => (
   <style>{`
     .docs-hl-str  { color: var(--blue); }
@@ -435,7 +490,7 @@ const SyntaxCSS = () => (
   `}</style>
 );
 
-// ─── Method Badge ─────────────────────────────────────────────────────────────
+// â”€â”€â”€ Method Badge â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const MethodBadge: React.FC<{ method: 'GET' | 'POST' }> = ({ method }) => (
   <span
     className={`inline-flex items-center justify-center font-mono text-[9px] font-bold rounded uppercase ${
@@ -454,7 +509,7 @@ const MethodBadge: React.FC<{ method: 'GET' | 'POST' }> = ({ method }) => (
   </span>
 );
 
-// ─── Copy Button ──────────────────────────────────────────────────────────────
+// â”€â”€â”€ Copy Button â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const CopyButton: React.FC<{
   text: string;
   id: string;
@@ -476,7 +531,7 @@ const CopyButton: React.FC<{
   </button>
 );
 
-// ─── Code Block ───────────────────────────────────────────────────────────────
+// â”€â”€â”€ Code Block â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const CodeBlock: React.FC<{
   id: string;
   title: string;
@@ -537,7 +592,7 @@ const CodeBlock: React.FC<{
   );
 };
 
-// ─── Response Block ───────────────────────────────────────────────────────────
+// â”€â”€â”€ Response Block â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const ResponseBlock: React.FC<{
   title: string;
   status: string;
@@ -579,7 +634,7 @@ const ResponseBlock: React.FC<{
   );
 };
 
-// ─── Section Heading ──────────────────────────────────────────────────────────
+// â”€â”€â”€ Section Heading â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const SectionHeading: React.FC<{
   id: string;
   eyebrow?: string;
@@ -618,7 +673,7 @@ const SectionHeading: React.FC<{
   </div>
 );
 
-// ─── Endpoint Header ──────────────────────────────────────────────────────────
+// â”€â”€â”€ Endpoint Header â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const EndpointHeader: React.FC<{
   id: string;
   method: 'GET' | 'POST';
@@ -654,7 +709,7 @@ const EndpointHeader: React.FC<{
   </div>
 );
 
-// ─── Param Table ──────────────────────────────────────────────────────────────
+// â”€â”€â”€ Param Table â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const ParamTable: React.FC<{
   params: { name: string; type: string; required: boolean; description: string }[];
 }> = ({ params }) => (
@@ -757,7 +812,7 @@ const ParamTable: React.FC<{
   </div>
 );
 
-// ─── Sidebar Link ─────────────────────────────────────────────────────────────
+// â”€â”€â”€ Sidebar Link â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const SidebarLink: React.FC<{
   item: NavItem;
   isActive: boolean;
@@ -798,7 +853,7 @@ const SidebarLink: React.FC<{
   </button>
 );
 
-// ─── FAQ Item ─────────────────────────────────────────────────────────────────
+// â”€â”€â”€ FAQ Item â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const FaqItem: React.FC<{ q: string; a: string; isLast: boolean }> = ({ q, a, isLast }) => {
   const [open, setOpen] = React.useState(false);
   return (
@@ -876,18 +931,21 @@ const JavaScriptIcon: React.FC = () => (
   </svg>
 );
 
-// ─── Main DocsPage ─────────────────────────────────────────────────────────────
+// â”€â”€â”€ Main DocsPage â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 export const DocsPage: React.FC = () => {
+  const { isLoggedIn, token, openAuth } = useAppStore();
   const [activeSection, setActiveSection] = useState('overview');
   const [searchQuery, setSearchQuery] = useState('');
-  const [apiKey, setApiKey] = useState('YOUR_API_KEY');
+  const [apiKey, setApiKey] = useState('');
+  const [apiKeyInfo, setApiKeyInfo] = useState<ApiKeyInfo | null>(null);
+  const [apiKeyError, setApiKeyError] = useState('');
   const [isGeneratingKey, setIsGeneratingKey] = useState(false);
   const [copiedStates, setCopiedStates] = useState<Record<string, boolean>>({});
   const [isMobileOpen, setIsMobileOpen] = useState(false);
   const [codeTabs, setCodeTabs] = useState<Record<string, LangTab>>({
     quickstart: 'curl',
     upload: 'curl',
-    inpainting: 'curl',
+    'background-stage': 'curl',
     history: 'curl',
   });
 
@@ -904,6 +962,30 @@ export const DocsPage: React.FC = () => {
     return () => obs.disconnect();
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+    setApiKey('');
+    setApiKeyError('');
+
+    if (!token) {
+      setApiKeyInfo(null);
+      return () => { cancelled = true; };
+    }
+
+    getApiKeyInfo(token)
+      .then((info) => {
+        if (!cancelled) setApiKeyInfo(info);
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setApiKeyInfo(null);
+          setApiKeyError(err instanceof Error ? err.message : 'Failed to load API key');
+        }
+      });
+
+    return () => { cancelled = true; };
+  }, [token]);
+
   const setRef = (id: string) => (el: HTMLElement | null) => { sectionRefs.current[id] = el; };
 
   const scrollTo = useCallback((id: string) => {
@@ -917,15 +999,24 @@ export const DocsPage: React.FC = () => {
   const handleTabChange = (blockId: string, tab: LangTab) =>
     setCodeTabs((p) => ({ ...p, [blockId]: tab }));
 
-  const handleGenerateKey = () => {
+  const handleGenerateKey = async () => {
+    if (!isLoggedIn || !token) {
+      setApiKeyError('Sign in to generate an API key.');
+      openAuth();
+      return;
+    }
+
     setIsGeneratingKey(true);
-    setTimeout(() => {
-      const hex = Array.from({ length: 20 }, () =>
-        Math.floor(Math.random() * 36).toString(36)
-      ).join('');
-      setApiKey(`vt_live_${hex}`);
+    setApiKeyError('');
+    try {
+      const result = await generateApiKey(token);
+      setApiKey(result.apiKey);
+      setApiKeyInfo(result);
+    } catch (err) {
+      setApiKeyError(err instanceof Error ? err.message : 'Failed to generate API key');
+    } finally {
       setIsGeneratingKey(false);
-    }, 1000);
+    }
   };
 
   const copy = (text: string, id: string) => {
@@ -945,10 +1036,17 @@ export const DocsPage: React.FC = () => {
     }))
     .filter((g) => g.items.length > 0);
 
-  const uploadCode = getUploadCode();
-  const historyCode = getHistoryCode();
+  const apiKeyForSnippets = API_KEY_PLACEHOLDER;
+  const visibleApiKey = apiKey || (
+    apiKeyInfo?.hasKey && apiKeyInfo.lastFour
+      ? `vt_live_...${apiKeyInfo.lastFour}`
+      : API_KEY_PLACEHOLDER
+  );
+  const hasApiKey = Boolean(apiKey || apiKeyInfo?.hasKey);
+  const uploadCode = getUploadCode(apiKeyForSnippets);
+  const historyCode = getHistoryCode(apiKeyForSnippets);
 
-  // ── Sidebar content ──────────────────────────────────────────────────────
+  // â”€â”€ Sidebar content â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const sidebarContent = (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', paddingTop: '20px' }}>
       {/* Logo */}
@@ -990,7 +1088,7 @@ export const DocsPage: React.FC = () => {
           <Search size={12} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: 'var(--ink4)', pointerEvents: 'none' }} />
           <input
             type="text"
-            placeholder="Search docs…"
+            placeholder="Search docs..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             style={{
@@ -1050,7 +1148,7 @@ export const DocsPage: React.FC = () => {
       <DocsCSS />
       <SyntaxCSS />
 
-      {/* ── Mobile top bar ────────────────────────────────────────── */}
+      {/* â”€â”€ Mobile top bar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
       <div
         className="docs-mobile-bar"
         style={{
@@ -1082,7 +1180,7 @@ export const DocsPage: React.FC = () => {
         </span>
       </div>
 
-      {/* ── Three-column layout ────────────────────────────────────── */}
+      {/* â”€â”€ Three-column layout â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
       <div style={{ display: 'flex', maxWidth: '1440px', margin: '0 auto' }}>
 
         {/* Left sidebar */}
@@ -1103,7 +1201,7 @@ export const DocsPage: React.FC = () => {
         {/* Main */}
         <main style={{ flex: 1, minWidth: 0, padding: '60px 64px 120px', maxWidth: '860px' }}>
 
-          {/* ── HERO ───────────────────────────────────────────────── */}
+          {/* â”€â”€ HERO â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
           <div className="docs-fade-up" style={{ marginBottom: '80px' }}>
             {/* Eyebrow badge */}
             <div style={{ display: 'inline-flex', alignItems: 'center', gap: '10px', marginBottom: '28px' }}>
@@ -1123,7 +1221,7 @@ export const DocsPage: React.FC = () => {
                   fontSize: '10px', fontWeight: 600, letterSpacing: '0.14em',
                   textTransform: 'uppercase' as const, color: 'var(--blue)',
                 }}>
-                  API v1 · REST
+                  API v1 / REST
                 </span>
               </div>
             </div>
@@ -1182,12 +1280,12 @@ export const DocsPage: React.FC = () => {
                       borderRadius: '50%',
                       animation: 'docs-spin 0.7s linear infinite',
                     }} />
-                    Generating…
+                    Generating...
                   </>
                 ) : (
                   <>
                     <Key size={14} />
-                    {apiKey === 'YOUR_API_KEY' ? 'Get your API Key' : 'Regenerate Key'}
+                    {!token ? 'Sign in for API Key' : hasApiKey ? 'Regenerate Key' : 'Get your API Key'}
                   </>
                 )}
               </button>
@@ -1215,7 +1313,25 @@ export const DocsPage: React.FC = () => {
 
             {/* API Key reveal */}
             <AnimatePresence>
-              {apiKey !== 'YOUR_API_KEY' && (
+              {apiKeyError && (
+                <motion.div
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: 8 }}
+                  style={{
+                    padding: '12px 16px', borderRadius: '10px',
+                    border: '1px solid rgba(204,51,51,0.22)',
+                    background: 'rgba(204,51,51,0.08)',
+                    color: '#CC3333',
+                    fontFamily: "'Lora', Georgia, serif",
+                    fontSize: '13px',
+                    maxWidth: '520px', marginBottom: '16px',
+                  }}
+                >
+                  {apiKeyError}
+                </motion.div>
+              )}
+              {hasApiKey && (
                 <motion.div
                   initial={{ opacity: 0, y: 12, scale: 0.98 }}
                   animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -1237,7 +1353,7 @@ export const DocsPage: React.FC = () => {
                         fontFamily: "'Syne', system-ui, sans-serif",
                         fontSize: '12px', fontWeight: 600, color: 'var(--blue)', marginBottom: '3px',
                       }}>
-                        Sandbox key generated
+                        {apiKey ? 'Live API key generated' : 'Live API key active'}
                       </p>
                       <code style={{
                         fontFamily: "'JetBrains Mono', 'Space Mono', monospace",
@@ -1245,11 +1361,22 @@ export const DocsPage: React.FC = () => {
                         display: 'block', overflow: 'hidden',
                         textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                       }}>
-                        {apiKey}
+                        {visibleApiKey}
                       </code>
                     </div>
                   </div>
-                  <CopyButton text={apiKey} id="hero-key" copiedStates={copiedStates} onCopy={copy} />
+                  {apiKey ? (
+                    <CopyButton text={apiKey} id="hero-key" copiedStates={copiedStates} onCopy={copy} />
+                  ) : (
+                    <span style={{
+                      fontFamily: "'JetBrains Mono', monospace",
+                      fontSize: '10px',
+                      color: 'var(--ink4)',
+                      whiteSpace: 'nowrap',
+                    }}>
+                      Regenerate to reveal
+                    </span>
+                  )}
                 </motion.div>
               )}
             </AnimatePresence>
@@ -1279,25 +1406,32 @@ export const DocsPage: React.FC = () => {
             `}</style>
           </div>
 
-          {/* ── OVERVIEW ───────────────────────────────────────────── */}
+          {/* â”€â”€ OVERVIEW â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
           <section style={{ marginBottom: '72px' }}>
-            <SectionHeading id="overview" eyebrow="01 — Introduction" label="Overview" refFn={setRef('overview')} />
+            <SectionHeading id="overview" eyebrow="01 - Introduction" label="Overview" refFn={setRef('overview')} />
             <p style={{ fontSize: '15px', fontFamily: "'Lora', Georgia, serif", lineHeight: 1.85, color: 'var(--ink3)', marginBottom: '28px' }}>
               VieTrans is built on the <strong>VieTrans</strong> end-to-end model, a multi-stage translation 
               pipeline that splits the task into text-background separation, discrete visual codebook quantization, 
-              direct neural text translation, and seamless final layer fusion — requiring zero external OCR or heuristic font matching.
+              direct neural text translation, and seamless final layer fusion - requiring zero external OCR or heuristic font matching.
             </p>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {[
-                { step: '01', icon: '◎', title: 'Background Separation', sub: 'OCR/Layout analyzer', desc: 'Isolates source text layers from complex backgrounds, producing clean background segments.' },
-                { step: '02', icon: '⟳', title: 'Visual Quantization', sub: 'Layout blocks (8192 Size)', desc: 'Encodes and quantizes source visual text features into structured discrete codes representing font and layout.' },
-                { step: '03', icon: '◈', title: 'Neural Translation', sub: 'NLLB translator', desc: 'Translates source visual English codes directly into Vietnamese codes, completely bypassing OCR text extraction.' },
-                { step: '04', icon: '▣', title: 'Seamless Fusion', sub: 'Render planner', desc: 'Composites the reconstructed target Vietnamese text image back onto the clean backdrop layer seamlessly.' },
+                { step: '01', icon: 'BG', title: 'Background Separation', sub: 'OCR/Layout analyzer', desc: 'Isolates source text layers from complex backgrounds, producing clean background segments.' },
+                { step: '02', icon: 'VQ', title: 'Visual Quantization', sub: 'Layout blocks (8192 Size)', desc: 'Encodes and quantizes source visual text features into structured discrete codes representing font and layout.' },
+                { step: '03', icon: 'NT', title: 'Neural Translation', sub: 'NLLB translator', desc: 'Translates source visual English codes directly into Vietnamese codes, completely bypassing OCR text extraction.' },
+                { step: '04', icon: 'FX', title: 'Seamless Fusion', sub: 'Render planner', desc: 'Composites the reconstructed target Vietnamese text image back onto the clean backdrop layer seamlessly.' },
               ].map((c) => (
                 <div key={c.step} className="docs-pipeline-card">
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
-                    <span style={{ fontSize: '18px', color: 'var(--blue)', opacity: 0.7, lineHeight: 1 }}>{c.icon}</span>
+                    <span style={{
+                      fontFamily: "'JetBrains Mono', monospace",
+                      fontSize: '11px',
+                      fontWeight: 700,
+                      color: 'var(--blue)',
+                      opacity: 0.8,
+                      lineHeight: 1,
+                    }}>{c.icon}</span>
                     <span style={{
                       fontFamily: "'JetBrains Mono', monospace", fontSize: '9px', fontWeight: 700,
                       letterSpacing: '0.14em', textTransform: 'uppercase' as const,
@@ -1325,48 +1459,45 @@ export const DocsPage: React.FC = () => {
             </div>
           </section>
 
-          {/* ── QUICK START ─────────────────────────────────────────── */}
+          {/* â”€â”€ QUICK START â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
           <section style={{ marginBottom: '72px' }}>
-            <SectionHeading id="quick-start" eyebrow="02 — Getting Started" label="Quick Start" refFn={setRef('quick-start')} />
+            <SectionHeading id="quick-start" eyebrow="02 - Getting Started" label="Quick Start" refFn={setRef('quick-start')} />
             <p style={{ fontSize: '15px', fontFamily: "'Lora', Georgia, serif", lineHeight: 1.85, color: 'var(--ink3)', marginBottom: '28px' }}>
-              Make your first API call in under 60 seconds. The example below sends an image and receives a fully translated output image URL.
+              Make your first API call by submitting an image job, polling until it finishes, and then reading the translated output image URL.
             </p>
             <CodeBlock id="quickstart" title="POST /api/upload" tabs={['curl', 'js', 'python', 'php']}
               snippets={uploadCode} activeTab={codeTabs['quickstart']}
               onTabChange={(tab) => handleTabChange('quickstart', tab)}
               copiedStates={copiedStates} onCopy={copy} />
             <div style={{ marginTop: '14px' }}>
-              <ResponseBlock title="Response · 200 OK" status="200 OK" statusColor="green" json={`{
-  "matched_id": "vt_res_9f3c02a1e847",
-  "status": "done",
-  "stages": {
-    "input":  "/api/images/input/vt_res_9f3c02a1e847",
-    "fuse":   "/api/images/fuse/vt_res_9f3c02a1e847"
-  },
-  "ocr_confidence": 0.985,
-  "translated_regions": 12,
-  "processing_ms": 1174
+              <ResponseBlock title="Response - 202 Accepted" status="202 Accepted" statusColor="green" json={`{
+  "job_id": "0c4a1f5e-93ef-41fa-9de5-ec2af60e4b72",
+  "sample_id": "b5f2f5f2-0a89-4c55-8d6f-7f09e2d92c32",
+  "matched_id": "b5f2f5f2-0a89-4c55-8d6f-7f09e2d92c32",
+  "status": "queued",
+  "poll_url": "/api/jobs/0c4a1f5e-93ef-41fa-9de5-ec2af60e4b72",
+  "edit_token": "one-time-edit-token"
 }`} />
             </div>
           </section>
 
-          {/* ── AUTHENTICATION ──────────────────────────────────────── */}
+          {/* â”€â”€ AUTHENTICATION â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
           <section style={{ marginBottom: '72px' }}>
             <SectionHeading id="authentication" label="Authentication" refFn={setRef('authentication')} />
             <p style={{ fontSize: '15px', fontFamily: "'Lora', Georgia, serif", lineHeight: 1.85, color: 'var(--ink3)', marginBottom: '24px' }}>
-              All API requests are authenticated with a secret token passed in the request header. Keep your key private and never expose it in client-side code.
+              External API requests can use your account API key in the request header. Keep your key private and never expose it in client-side code.
             </p>
             <div style={{ borderRadius: '10px', border: '1px solid var(--docs-border)', overflow: 'hidden', marginBottom: '20px' }}>
               <div style={{ padding: '10px 20px', background: 'var(--bg2)', borderBottom: '1px solid var(--docs-border)' }}>
                 <span style={{
                   fontFamily: "'JetBrains Mono', monospace", fontSize: '9px', fontWeight: 700,
                   letterSpacing: '0.18em', textTransform: 'uppercase' as const, color: 'var(--ink4)',
-                }}>Required Header</span>
+                }}>API Header</span>
               </div>
               <div style={{ padding: '16px 20px', display: 'flex', alignItems: 'center', gap: '12px', background: 'var(--paper)' }}>
                 <code style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: '13px', fontWeight: 700, color: 'var(--blue)' }}>X-API-Key</code>
-                <span style={{ color: 'var(--ink4)', fontSize: '14px' }}>·</span>
-                <code style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: '12px', color: 'var(--ink3)' }}>{apiKey}</code>
+                <span style={{ color: 'var(--ink4)', fontSize: '14px' }}>|</span>
+                <code style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: '12px', color: 'var(--ink3)' }}>{visibleApiKey}</code>
               </div>
             </div>
             <div className="docs-warning-box">
@@ -1377,30 +1508,30 @@ export const DocsPage: React.FC = () => {
                 <code style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: '11px', background: 'var(--bg2)', padding: '1px 6px', borderRadius: '4px', color: 'var(--blue)' }}>
                   VT_API_KEY
                 </code>
-                ) and never commit it to source control.
+                ) and never commit it to source control. Existing keys are masked after creation; regenerate only when you are ready to replace the old one.
               </p>
             </div>
           </section>
 
-          {/* ── RATE LIMITS ─────────────────────────────────────────── */}
+          {/* â”€â”€ RATE LIMITS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
           <section style={{ marginBottom: '72px' }}>
             <SectionHeading id="rate-limits" label="Rate Limits" refFn={setRef('rate-limits')} />
             <p style={{ fontSize: '15px', fontFamily: "'Lora', Georgia, serif", lineHeight: 1.85, color: 'var(--ink3)', marginBottom: '24px' }}>
-              Response headers expose your current quota window. Implement exponential backoff when you receive a{' '}
+              Upload and auth endpoints are rate-limited per client and path. Implement exponential backoff when you receive a{' '}
               <code style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: '12px', background: 'var(--bg2)', padding: '1px 6px', borderRadius: '4px', color: 'var(--ink2)' }}>429</code>.
             </p>
             <div style={{ borderRadius: '10px', border: '1px solid var(--docs-border)', overflow: 'hidden' }}>
               <div style={{ padding: '10px 20px', background: 'var(--bg2)', borderBottom: '1px solid var(--docs-border)' }}>
                 <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: '9px', fontWeight: 700, letterSpacing: '0.18em', textTransform: 'uppercase' as const, color: 'var(--ink4)' }}>
-                  Response Headers
+                  Defaults
                 </span>
               </div>
               <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <tbody>
                   {[
-                    { h: 'X-RateLimit-Limit', d: 'Maximum requests allowed in the current window (default: 1 000 / hr).' },
-                    { h: 'X-RateLimit-Remaining', d: 'Requests remaining until the window resets.' },
-                    { h: 'X-RateLimit-Reset', d: 'Unix timestamp (UTC) when the quota window resets.' },
+                    { h: 'Window', d: 'Default rate-limit window is 60 seconds.' },
+                    { h: 'Limit', d: 'Default limit is 30 requests per client/path in the active window.' },
+                    { h: 'Scope', d: 'Applied to upload, edit, login, register, password reset, and API-key endpoints.' },
                   ].map((r, i) => (
                     <tr key={r.h} className="docs-param-row" style={{ borderTop: i > 0 ? '1px solid var(--docs-border)' : 'none' }}>
                       <td style={{ padding: '14px 20px', width: '260px', background: 'var(--paper)' }}>
@@ -1416,7 +1547,7 @@ export const DocsPage: React.FC = () => {
             </div>
           </section>
 
-          {/* ── API Reference divider ───────────────────────────────── */}
+          {/* â”€â”€ API Reference divider â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '48px', paddingTop: '16px' }}>
             <hr className="docs-rule" style={{ flex: 1, margin: 0 }} />
             <div style={{
@@ -1432,11 +1563,11 @@ export const DocsPage: React.FC = () => {
             <hr className="docs-rule" style={{ flex: 1, margin: 0 }} />
           </div>
 
-          {/* ── PROCESS IMAGE ───────────────────────────────────────── */}
+          {/* â”€â”€ PROCESS IMAGE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
           <section style={{ marginBottom: '72px' }}>
             <EndpointHeader id="upload" method="POST" path="/api/upload" title="Process Image" refFn={setRef('upload')} />
             <p style={{ fontSize: '15px', fontFamily: "'Lora', Georgia, serif", lineHeight: 1.85, color: 'var(--ink3)', marginBottom: '28px' }}>
-              The primary endpoint. Submits an image through the full four-stage VieTrans model: text-background separation, discrete visual codebook quantization, direct neural translation, and seamless layer fusion.
+              The primary endpoint. It queues an image for the full VieTrans model pipeline, then returns a job id that clients poll until the translated result is ready.
             </p>
             <ParamTable params={[
               { name: 'file', type: 'binary', required: true, description: 'Image file. Accepted: .png, .jpg, .jpeg, .webp. Max size: 10 MB.' },
@@ -1446,79 +1577,83 @@ export const DocsPage: React.FC = () => {
                 snippets={uploadCode} activeTab={codeTabs['upload']}
                 onTabChange={(tab) => handleTabChange('upload', tab)}
                 copiedStates={copiedStates} onCopy={copy} />
-              <ResponseBlock title="Response · 200 OK" status="200 OK" statusColor="green" json={`{
-  "matched_id": "vt_res_9f3c02a1e847",
-  "status": "done",
-  "stages": {
-    "input": "/api/images/input/...",
-    "fuse":  "/api/images/fuse/..."
-  },
-  "ocr_confidence": 0.985,
-  "translated_regions": 12,
-  "processing_ms": 1174
+              <ResponseBlock title="Response - 202 Accepted" status="202 Accepted" statusColor="green" json={`{
+  "job_id": "0c4a1f5e-93ef-41fa-9de5-ec2af60e4b72",
+  "sample_id": "b5f2f5f2-0a89-4c55-8d6f-7f09e2d92c32",
+  "matched_id": "b5f2f5f2-0a89-4c55-8d6f-7f09e2d92c32",
+  "status": "queued",
+  "poll_url": "/api/jobs/0c4a1f5e-93ef-41fa-9de5-ec2af60e4b72",
+  "edit_token": "one-time-edit-token"
 }`} />
             </div>
           </section>
 
-          {/* ── ERASE & INPAINT ──────────────────────────────────────── */}
+          {/* â”€â”€ ERASE & INPAINT â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
           <section style={{ marginBottom: '72px', paddingTop: '40px', borderTop: '1px solid var(--docs-border)' }}>
-            <EndpointHeader id="inpainting" method="POST" path="/api/inpainting" title="Erase & Inpaint Background" refFn={setRef('inpainting')} />
+            <EndpointHeader id="background-stage" method="GET" path="/api/images/back/{sample_id}" title="Get Inpainted Background" refFn={setRef('background-stage')} />
             <p style={{ fontSize: '15px', fontFamily: "'Lora', Georgia, serif", lineHeight: 1.85, color: 'var(--ink3)', marginBottom: '28px' }}>
-              Run background reconstruction without translation. Useful for pre-processing images or removing text before manual editing.
+              The API exposes the inpainted background as a pipeline artifact after the upload job succeeds. Use the <code>result.stages.back</code> URL from the completed job response to fetch the cleaned background image.
             </p>
             <ParamTable params={[
-              { name: 'file', type: 'binary', required: true, description: 'Image file. Accepted: .png, .jpg, .jpeg, .webp. Max size: 10 MB.' },
-              { name: 'mask_coordinates', type: 'string (JSON)', required: false, description: 'Bounding box array [[x1,y1,x2,y2], …]. If omitted, all detected text regions are erased.' },
+              { name: 'sample_id', type: 'string', required: true, description: 'The matched_id/sample_id returned by the completed upload job.' },
+              { name: 'stage', type: 'string', required: true, description: 'Use back for the inpainted background, or input, text_en, text_vi, fuse for other artifacts.' },
             ]} />
             <div className="flex flex-col gap-4">
-              <CodeBlock id="inpainting" title="Request" tabs={['curl', 'js', 'python']}
+              <CodeBlock id="background-stage" title="Request" tabs={['curl', 'js', 'python']}
                 snippets={{
-                  curl: `curl -X POST https://masterdzzzz-vietrans-backend.hf.space/api/inpainting \\\n  -H "Authorization: Bearer YOUR_JWT_TOKEN" \\\n  -F "file=@/path/to/image.png"`,
-                  js: `const form = new FormData();\nform.append('file', fileInput.files[0]);\n\nconst res = await fetch(\n  'https://masterdzzzz-vietrans-backend.hf.space/api/inpainting',\n  { method: 'POST', headers: { 'Authorization': 'Bearer YOUR_JWT_TOKEN' }, body: form }\n);`,
-                  python: `resp = requests.post(\n    "https://masterdzzzz-vietrans-backend.hf.space/api/inpainting",\n    headers={"Authorization": "Bearer YOUR_JWT_TOKEN"},\n    files={"file": open("image.png", "rb")},\n)`,
+                  curl: `curl "https://masterdzzzz-vietrans-backend.hf.space/api/images/back/YOUR_SAMPLE_ID"`,
+                  js: `const res = await fetch(\n  'https://masterdzzzz-vietrans-backend.hf.space/api/images/back/YOUR_SAMPLE_ID'\n);\nconst blob = await res.blob();`,
+                  python: `resp = requests.get(\n    "https://masterdzzzz-vietrans-backend.hf.space/api/images/back/YOUR_SAMPLE_ID"\n)\nresp.raise_for_status()`,
                   php: '',
                 }}
-                activeTab={codeTabs['inpainting']}
-                onTabChange={(tab) => handleTabChange('inpainting', tab)}
+                activeTab={codeTabs['background-stage']}
+                onTabChange={(tab) => handleTabChange('background-stage', tab)}
                 copiedStates={copiedStates} onCopy={copy} />
-              <ResponseBlock title="Response · 200 OK" status="200 OK" statusColor="green" json={`{
-  "matched_id": "vt_inp_c8d4f2a11092",
-  "status": "done",
-  "inpainted_url": "/api/images/fuse/vt_inp_c8d4f2a11092"
+              <ResponseBlock title="Completed job response excerpt" status="200 OK" statusColor="green" json={`{
+  "status": "succeeded",
+  "result": {
+  "matched_id": "b5f2f5f2-0a89-4c55-8d6f-7f09e2d92c32",
+  "stages": {
+    "back": "/api/images/back/b5f2f5f2-0a89-4c55-8d6f-7f09e2d92c32",
+    "fuse": "/api/images/fuse/b5f2f5f2-0a89-4c55-8d6f-7f09e2d92c32"
+  }
+  }
 }`} />
             </div>
           </section>
 
-          {/* ── GET HISTORY ─────────────────────────────────────────── */}
+          {/* â”€â”€ GET HISTORY â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
           <section style={{ marginBottom: '72px', paddingTop: '40px', borderTop: '1px solid var(--docs-border)' }}>
             <EndpointHeader id="history" method="GET" path="/api/history" title="Get Translation History" refFn={setRef('history')} />
             <p style={{ fontSize: '15px', fontFamily: "'Lora', Georgia, serif", lineHeight: 1.85, color: 'var(--ink3)', marginBottom: '28px' }}>
-              Retrieve a paginated list of your past translation jobs, ordered by creation date descending.
+              Retrieve your past translation jobs, ordered by creation date descending. You can optionally filter by a local calendar date.
             </p>
             <ParamTable params={[
-              { name: 'page', type: 'integer', required: false, description: 'Page index, 1-indexed. Defaults to 1.' },
-              { name: 'limit', type: 'integer', required: false, description: 'Items per page. Defaults to 10. Maximum: 100.' },
+              { name: 'date', type: 'string', required: false, description: 'Local date filter in YYYY-MM-DD format.' },
+              { name: 'tz_offset_minutes', type: 'integer', required: false, description: 'Client timezone offset from Date.getTimezoneOffset(). Defaults to 0.' },
             ]} />
             <div className="flex flex-col gap-4">
               <CodeBlock id="history" title="Request" tabs={['curl', 'js', 'python']}
                 snippets={historyCode} activeTab={codeTabs['history']}
                 onTabChange={(tab) => handleTabChange('history', tab)}
                 copiedStates={copiedStates} onCopy={copy} />
-              <ResponseBlock title="Response · 200 OK" status="200 OK" statusColor="green" json={`{
-  "data": [
+              <ResponseBlock title="Response - 200 OK" status="200 OK" statusColor="green" json={`{
+  "histories": [
     {
-      "id": "vt_res_9f3c02a1e847",
+      "id": "b5f2f5f2-0a89-4c55-8d6f-7f09e2d92c32",
       "created_at": "2026-05-26T12:00:00Z",
-      "target_lang": "vi",
-      "status": "done"
+      "tit": "Xin chao",
+      "ocr": "Hello",
+      "stages": {
+        "fuse": "/api/images/fuse/b5f2f5f2-0a89-4c55-8d6f-7f09e2d92c32"
+      }
     }
-  ],
-  "pagination": { "total": 42, "page": 1, "pages": 5 }
+  ]
 }`} />
             </div>
           </section>
 
-          {/* ── ERROR CODES ─────────────────────────────────────────── */}
+          {/* â”€â”€ ERROR CODES â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
           <section style={{ marginBottom: '72px' }}>
             <SectionHeading id="errors" label="Error Codes" refFn={setRef('errors')} />
             <p style={{ fontSize: '15px', fontFamily: "'Lora', Georgia, serif", lineHeight: 1.85, color: 'var(--ink3)', marginBottom: '24px' }}>
@@ -1540,10 +1675,10 @@ export const DocsPage: React.FC = () => {
                 <tbody>
                   {[
                     { code: '400', name: 'BAD_REQUEST', desc: 'Malformed request body or missing required fields.' },
-                    { code: '401', name: 'UNAUTHORIZED', desc: 'Missing, invalid, or expired X-API-Key header.' },
+                    { code: '401', name: 'UNAUTHORIZED', desc: 'Invalid API key or missing credentials on protected endpoints.' },
                     { code: '413', name: 'PAYLOAD_TOO_LARGE', desc: 'Image exceeds the 10 MB file-size limit.' },
                     { code: '422', name: 'UNSUPPORTED_LANGUAGE', desc: 'The target_lang code is not in the supported language set.' },
-                    { code: '429', name: 'TOO_MANY_REQUESTS', desc: 'Rate limit exceeded. Back off and check X-RateLimit-Reset.' },
+                    { code: '429', name: 'TOO_MANY_REQUESTS', desc: 'Rate limit exceeded. Back off before retrying the same endpoint.' },
                     { code: '500', name: 'INTERNAL_ERROR', desc: 'Unexpected server-side failure. Retry with exponential backoff.' },
                   ].map((r, i) => (
                     <tr key={r.code} className="docs-param-row" style={{ borderTop: i > 0 ? '1px solid var(--docs-border)' : 'none' }}>
@@ -1568,7 +1703,7 @@ export const DocsPage: React.FC = () => {
             </div>
           </section>
 
-          {/* ── REST Examples ─────────────────────────────────────────── */}
+          {/* â”€â”€ REST Examples â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
           <section style={{ marginBottom: '72px' }}>
             <SectionHeading id="sdks" label="REST Examples" refFn={setRef('sdks')} />
             <p style={{ fontSize: '15px', fontFamily: "'Lora', Georgia, serif", lineHeight: 1.85, color: 'var(--ink3)', marginBottom: '28px' }}>
@@ -1578,11 +1713,11 @@ export const DocsPage: React.FC = () => {
               {[
                 {
                   icon: <PythonIcon />, pkg: 'Python requests', ver: 'REST upload',
-                  code: `import requests\n\nwith open("hero.png", "rb") as f:\n    res = requests.post(\n        "https://your-api.example.com/api/upload",\n        files={"file": f},\n        headers={"Authorization": "Bearer ${apiKey}"},\n    )\nres.raise_for_status()\nprint(res.json()["stages"]["fuse"])`,
+                  code: `import time\nimport requests\n\nAPI_BASE = "https://your-api.example.com"\n\nwith open("hero.png", "rb") as f:\n    res = requests.post(\n        API_BASE + "/api/upload",\n        files={"file": f},\n        headers={"X-API-Key": "${apiKeyForSnippets}"},\n    )\nres.raise_for_status()\njob = res.json()\n\nwhile job["status"] != "succeeded":\n    if job["status"] == "failed":\n        raise RuntimeError(job.get("error", "Upload failed"))\n    time.sleep(1.5)\n    job = requests.get(\n        API_BASE + job["poll_url"],\n        headers={"X-API-Key": "${apiKeyForSnippets}"},\n    ).json()\n\nprint(job["result"]["stages"]["fuse"])`,
                 },
                 {
                   icon: <JavaScriptIcon />, pkg: 'JavaScript fetch', ver: 'REST upload',
-                  code: `const form = new FormData();\nform.append("file", fileInput.files[0]);\n\nconst res = await fetch("https://your-api.example.com/api/upload", {\n  method: "POST",\n  headers: { Authorization: "Bearer ${apiKey}" },\n  body: form,\n});\n\nif (!res.ok) throw new Error(await res.text());\nconst data = await res.json();\nconsole.log(data.stages.fuse);`,
+                  code: `const API_BASE = "https://your-api.example.com";\nconst form = new FormData();\nform.append("file", fileInput.files[0]);\n\nconst res = await fetch(API_BASE + "/api/upload", {\n  method: "POST",\n  headers: { "X-API-Key": "${apiKeyForSnippets}" },\n  body: form,\n});\n\nif (!res.ok) throw new Error(await res.text());\nlet job = await res.json();\n\nwhile (job.status !== "succeeded") {\n  if (job.status === "failed") throw new Error(job.error || "Upload failed");\n  await new Promise((resolve) => setTimeout(resolve, 1500));\n  const poll = await fetch(API_BASE + job.poll_url, {\n    headers: { "X-API-Key": "${apiKeyForSnippets}" },\n  });\n  job = await poll.json();\n}\n\nconsole.log(job.result.stages.fuse);`,
                 },
               ].map((sdk) => (
                 <div key={sdk.pkg} className="docs-code-block">
@@ -1603,14 +1738,14 @@ export const DocsPage: React.FC = () => {
             </div>
           </section>
 
-          {/* ── FAQ ──────────────────────────────────────────────────── */}
+          {/* â”€â”€ FAQ â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
           <section style={{ marginBottom: '48px' }}>
             <SectionHeading id="faq" label="FAQ" refFn={setRef('faq')} />
             <div style={{ borderRadius: '12px', border: '1px solid var(--docs-border)', overflow: 'hidden' }}>
               {[
                 { q: 'What image formats are supported?', a: 'We support .png, .jpg / .jpeg, and .webp. PNG is recommended for images with transparency or crisp text edges, which improves OCR accuracy and background reconstruction quality.' },
-                { q: 'How can I maximize OCR accuracy?', a: 'Provide images with high contrast between text and background, at least 640 × 640 px resolution, and minimal perspective distortion. Avoid heavy JPEG compression artifacts.' },
-                { q: 'Can I specify which regions to translate?', a: 'Yes — use the mask_coordinates parameter on the /v1/inpainting endpoint to target specific bounding boxes. The /v1/upload pipeline currently translates all detected text regions automatically.' },
+                { q: 'How can I maximize OCR accuracy?', a: 'Provide images with high contrast between text and background, at least 640 x 640 px resolution, and minimal perspective distortion. Avoid heavy JPEG compression artifacts.' },
+                { q: 'Can I specify which regions to translate?', a: 'Region-level selection is not exposed in the public API yet. The /api/upload pipeline currently translates all detected text regions automatically and returns intermediate stage images for review.' },
                 { q: 'How are custom fonts handled?', a: 'FontMatcher v3 automatically selects from 2 000+ open-source and licensed fonts. Enterprise customers can upload custom corporate font packages via the dashboard.' },
               ].map((item, i, arr) => (
                 <FaqItem key={i} q={item.q} a={item.a} isLast={i === arr.length - 1} />

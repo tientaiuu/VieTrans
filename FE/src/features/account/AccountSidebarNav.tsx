@@ -1,8 +1,8 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Info, LogOut, UserRound } from 'lucide-react';
+import { CreditCard, Info, LogOut, UserRound } from 'lucide-react';
 
-type AccountSection = 'profile' | 'history' | 'settings' | 'information';
+type AccountSection = 'profile' | 'history' | 'settings' | 'pricing' | 'information';
 
 type AccountSidebarNavProps = {
   activeSection: AccountSection;
@@ -31,9 +31,16 @@ export const AccountSidebarNav: React.FC<AccountSidebarNavProps> = ({ activeSect
             </span>
           </button>
 
-
-
-
+          <button
+            type="button"
+            className={`account-sidebar-item ${activeSection === 'pricing' ? 'is-active' : ''}`}
+            onClick={() => navigate('/account/pricing')}
+          >
+            <span className="account-sidebar-item-main">
+              <CreditCard size={15} />
+              <span>Pricing</span>
+            </span>
+          </button>
 
           <button
             type="button"
